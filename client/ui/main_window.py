@@ -16,7 +16,10 @@ from PyQt6.QtGui import QAction, QIcon
 from pathlib import Path
 
 from .styles import StyleSheet, Icons
-
+import platform
+import subprocess
+import tempfile
+import os
 
 class BadgeButton(QPushButton):
     """带红点徽章的按钮"""
@@ -40,7 +43,7 @@ class BadgeButton(QPushButton):
         """)
         self._badge_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._badge_label.hide()
-    
+
     def set_badge(self, count: int):
         """设置徽章数量"""
         self._badge_count = count
@@ -53,7 +56,7 @@ class BadgeButton(QPushButton):
             self._badge_label.show()
         else:
             self._badge_label.hide()
-    
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if self._badge_count > 0:
@@ -65,7 +68,7 @@ import time
 class ProgressDialog(QDialog):
     """专业进度对话框 - 显示进度条、速率和取消按钮"""
     cancelled = pyqtSignal()
-    
+
     def __init__(self, title: str, filename: str, total_size: int, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -76,7 +79,7 @@ class ProgressDialog(QDialog):
         self.last_update_time = self.start_time
         self.last_bytes = 0
         self._cancelled = False
-        
+
         self.setStyleSheet("""
             QDialog {
                 background: white;
@@ -109,47 +112,47 @@ class ProgressDialog(QDialog):
                 background: #d93025;
             }
         """)
-        
+
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
         layout.setContentsMargins(24, 20, 24, 20)
-        
+
         # 文件名
         self.filename_label = QLabel(f"📄 {filename}")
         self.filename_label.setStyleSheet("font-size: 14px; font-weight: 500;")
         layout.addWidget(self.filename_label)
-        
+
         # 进度条
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         layout.addWidget(self.progress_bar)
-        
+
         # 状态行
         status_layout = QHBoxLayout()
-        
+
         self.size_label = QLabel("0 B / 0 B")
         self.size_label.setStyleSheet("font-size: 12px; color: #666;")
         status_layout.addWidget(self.size_label)
-        
+
         status_layout.addStretch()
-        
+
         self.speed_label = QLabel("0 KB/s")
         self.speed_label.setStyleSheet("font-size: 12px; color: #1a73e8; font-weight: 500;")
         status_layout.addWidget(self.speed_label)
-        
+
         layout.addLayout(status_layout)
-        
+
         # 取消按钮
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-        
+
         self.cancel_btn = QPushButton("取消")
         self.cancel_btn.clicked.connect(self._on_cancel)
         btn_layout.addWidget(self.cancel_btn)
-        
+
         layout.addLayout(btn_layout)
-    
+
     def _format_size(self, size: int) -> str:
         """格式化文件大小"""
         for unit in ['B', 'KB', 'MB', 'GB']:
@@ -157,7 +160,7 @@ class ProgressDialog(QDialog):
                 return f"{size:.1f} {unit}"
             size /= 1024
         return f"{size:.1f} TB"
-    
+
     def _format_speed(self, speed: float) -> str:
         """格式化速度"""
         if speed < 1024:
@@ -166,19 +169,19 @@ class ProgressDialog(QDialog):
             return f"{speed / 1024:.1f} KB/s"
         else:
             return f"{speed / 1024 / 1024:.1f} MB/s"
-    
+
     def update_progress(self, current_bytes: int):
         """更新进度"""
         if self._cancelled:
             return
-        
+
         # 计算百分比
         percent = int((current_bytes / self.total_size) * 100) if self.total_size > 0 else 0
         self.progress_bar.setValue(percent)
-        
+
         # 更新大小显示
         self.size_label.setText(f"{self._format_size(current_bytes)} / {self._format_size(self.total_size)}")
-        
+
         # 计算速率 (每0.5秒更新一次)
         now = time.time()
         if now - self.last_update_time >= 0.5:
@@ -188,20 +191,20 @@ class ProgressDialog(QDialog):
             self.speed_label.setText(self._format_speed(speed))
             self.last_update_time = now
             self.last_bytes = current_bytes
-        
+
         # 刷新界面
         QApplication.processEvents()
-    
+
     def _on_cancel(self):
         """取消操作"""
         self._cancelled = True
         self.cancelled.emit()
         self.reject()
-    
+
     def is_cancelled(self) -> bool:
         """检查是否已取消"""
         return self._cancelled
-    
+
     def set_complete(self):
         """设置完成状态"""
         self.progress_bar.setValue(100)
@@ -226,9 +229,9 @@ class FileItem:
 
 class MainWindow(QMainWindow):
     """主窗口"""
-    
+
     logout_requested = pyqtSignal()  # 退出登录信号
-    
+
     def __init__(self, network, key_manager, device_trust=None):
         super().__init__()
         self.network = network
@@ -237,31 +240,32 @@ class MainWindow(QMainWindow):
         self.current_path = []  # 当前路径栈
         self.current_group_id = None
         self.files = []
-        
+
         self.setWindowTitle("安全网盘")
         self.setMinimumSize(1200, 800)
         self.setStyleSheet(StyleSheet.MAIN)
-        
+
         # 群组文件未读计数 (group_id -> count)
         self.group_file_counts = {}
-        
+
         # 排序状态 - 个人网盘和群组独立
         self.personal_sort_column = 'created_at'
         self.personal_sort_ascending = False
         self.group_sort_column = 'created_at'
         self.group_sort_ascending = False
-        
+
         self._init_ui()
         self._refresh_files()
-        
+
         # 通知轮询定时器 (2秒 - 更实时)
         self.notification_timer = QTimer(self)
         self.notification_timer.timeout.connect(self._refresh_notifications)
         self.notification_timer.start(2000)  # 2秒轮询
-        
+
         # 初始加载通知
         self._refresh_notifications()
-    
+        self._temp_preview_files = []  # 临时预览文件列表
+
     def _init_ui(self):
         """初始化界面"""
         central = QWidget()
@@ -269,21 +273,228 @@ class MainWindow(QMainWindow):
         main_layout = QHBoxLayout(central)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-        
+
         # 侧边栏
         sidebar = self._create_sidebar()
         main_layout.addWidget(sidebar)
-        
+
         # 主内容区
         content = self._create_content()
         main_layout.addWidget(content, 1)
-        
+
         # 状态栏
         self.statusBar().showMessage("就绪")
-        
+
         # 初始化面包屑
         self._create_breadcrumb()
-    
+
+    def _preview_file(self, file: FileItem):
+        """预览文件（仅支持小文件）"""
+        if file.is_folder:
+            QMessageBox.information(self, "提示", "文件夹无法预览")
+            return
+
+        if file.size > 100 * 1024 * 1024:  # 100MB限制
+            QMessageBox.warning(self, "提示", "文件超过100MB，无法预览")
+            return
+
+        import tempfile
+        import subprocess
+        import platform
+        import os
+        from pathlib import Path
+
+        try:
+            # 显示加载提示
+            self.statusBar().showMessage(f"正在下载并解密 {file.name}...")
+            QApplication.processEvents()
+
+            # 创建临时目录（如果不存在的話）
+            temp_dir = Path.home() / ".secure_netdisk" / "previews"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+
+            # 使用原始文件名（确保唯一性）
+            original_name = file.name
+
+            # 清理文件名（移除非法字符）
+            import re
+            safe_name = re.sub(r'[<>:"/\\|?*]', '_', original_name)
+
+            # 生成唯一的临时文件路径（避免文件名冲突）
+            temp_path = temp_dir / f"preview_{file.id}_{safe_name}"
+
+            # 如果已存在同名文件，则删除
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except:
+                    pass
+
+            # 下载文件到临时路径（使用原始文件名）
+            download_result = self._download_file_to_temp(file, str(temp_path))
+
+            if download_result:
+                # 检查文件是否存在且大小正确
+                if not temp_path.exists() or temp_path.stat().st_size == 0:
+                    QMessageBox.critical(self, "错误", "预览文件生成失败")
+                    return
+
+                # 根据不同系统打开文件
+                system = platform.system()
+
+                try:
+                    if system == 'Windows':
+                        # Windows: 使用系统默认程序打开
+                        os.startfile(str(temp_path))
+                    elif system == 'Darwin':  # macOS
+                        # macOS: 使用open命令，并指定原始文件名
+                        subprocess.run(['open', str(temp_path)], check=True)
+                    elif system == 'Linux':
+                        # Linux: 使用xdg-open，这是标准方式
+                        subprocess.run(['xdg-open', str(temp_path)], check=True)
+                    else:
+                        QMessageBox.information(self, "提示",
+                                                f"文件已保存到: {temp_path}\n"
+                                                f"文件大小: {temp_path.stat().st_size:,} 字节")
+
+                    # 记录临时文件信息
+                    self._temp_preview_files.append(str(temp_path))
+
+                    # 设置清理定时器（30分钟后清理）
+                    QTimer.singleShot(30 * 60 * 1000, lambda: self._clean_temp_file(str(temp_path)))
+
+                    self.statusBar().showMessage(f"正在预览 {file.name}")
+
+                except subprocess.CalledProcessError as e:
+                    # 如果系统命令失败，显示文件路径让用户手动打开
+                    QMessageBox.information(
+                        self,
+                        "文件已准备好",
+                        f"文件已解密保存，但无法自动打开。\n\n"
+                        f"路径: {temp_path}\n"
+                        f"名称: {file.name}\n"
+                        f"大小: {file.size:,} 字节\n\n"
+                        f"请手动用相关程序打开此文件。"
+                    )
+                except Exception as e:
+                    QMessageBox.warning(self, "打开失败",
+                                        f"无法自动打开文件，错误: {str(e)}\n\n"
+                                        f"文件已保存到: {temp_path}")
+
+            else:
+                if temp_path.exists():
+                    try:
+                        temp_path.unlink()
+                    except:
+                        pass
+                QMessageBox.critical(self, "错误", "文件预览失败")
+
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"预览失败: {str(e)}")
+            self.statusBar().showMessage("预览失败")
+
+    def _download_file_to_temp(self, file: FileItem, temp_path: str) -> bool:
+        """下载文件到临时路径（无进度对话框）"""
+        try:
+            import gc
+            import base64
+            import tempfile
+            from pathlib import Path
+
+            # 开始下载 - 获取元数据
+            result = self.network.download_file_start(file.id)
+
+            if not result.get('success'):
+                return False
+
+            download_id = result['download_id']
+            total_size = result['size']
+            encrypted_file_key = bytes.fromhex(result['encrypted_file_key'])
+
+            del result
+            gc.collect()
+
+            # 创建临时文件接收数据
+            temp_fd, temp_enc_path = tempfile.mkstemp(suffix='.enc')
+
+            try:
+                downloaded = 0
+                chunk_size = 256 * 1024  # 256KB per chunk
+
+                with os.fdopen(temp_fd, 'wb') as temp_file:
+                    while True:
+                        # 请求下一块数据
+                        chunk_result = self.network.download_file_data(download_id, chunk_size)
+
+                        if not chunk_result.get('success'):
+                            return False
+
+                        # 解码并写入文件
+                        chunk_data = base64.b64decode(chunk_result['data'])
+                        temp_file.write(chunk_data)
+
+                        downloaded += len(chunk_data)
+
+                        # 检查是否完成
+                        if chunk_result.get('is_complete', False):
+                            break
+
+                gc.collect()
+
+                # 解密文件密钥
+                from client.file_crypto import FileCrypto
+
+                if self.current_group_id:
+                    file_key = self.key_manager.decrypt_with_group_key(
+                        self.current_group_id, encrypted_file_key
+                    )
+                else:
+                    file_key = self.key_manager.decrypt_file_key(encrypted_file_key)
+
+                # 流式解密到目标文件
+                FileCrypto.decrypt_from_encrypted_file(
+                    Path(temp_enc_path),
+                    file_key,
+                    Path(temp_path)
+                )
+                gc.collect()
+
+                return True
+
+            finally:
+                # 清理加密的临时文件
+                try:
+                    os.unlink(temp_enc_path)
+                except:
+                    pass
+
+        except Exception as e:
+            print(f"[Preview] 下载失败: {e}")
+            return False
+
+    def _clean_temp_file(self, file_path: str):
+        """清理临时预览文件"""
+        try:
+            import os
+            if os.path.exists(file_path):
+                os.unlink(file_path)
+                if file_path in self._temp_preview_files:
+                    self._temp_preview_files.remove(file_path)
+        except Exception as e:
+            print(f"[Preview] 清理临时文件失败: {e}")
+
+    def closeEvent(self, event):
+        """关闭窗口时清理所有临时预览文件"""
+        import os
+        for temp_file in self._temp_preview_files:
+            try:
+                if os.path.exists(temp_file):
+                    os.unlink(temp_file)
+            except:
+                pass
+        self._temp_preview_files.clear()
+        super().closeEvent(event)
+
     def _create_sidebar(self) -> QWidget:
         """创建侧边栏"""
         sidebar = QFrame()
@@ -291,39 +502,39 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(0, 16, 0, 16)
         layout.setSpacing(4)
-        
+
         # 新建按钮
         new_btn = QPushButton("➕ 功能")
         new_btn.setObjectName("fabButton")
         new_btn.clicked.connect(self._show_new_menu)
         layout.addWidget(new_btn, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addSpacing(16)
-        
+
         # 导航按钮
         self.nav_my_drive = QPushButton(f"{Icons.HOME} 我的云盘")
         self.nav_my_drive.setCheckable(True)
         self.nav_my_drive.setChecked(True)
         self.nav_my_drive.clicked.connect(self._nav_my_drive)
         layout.addWidget(self.nav_my_drive)
-        
+
         self.nav_groups = BadgeButton(f"{Icons.GROUP} 共享群组")
         self.nav_groups.setCheckable(True)
         self.nav_groups.clicked.connect(self._nav_groups)
         layout.addWidget(self.nav_groups)
-        
+
         # 邀请按钮（带徽章）
         self.nav_invitations = BadgeButton(f"{Icons.INVITE} 邀请通知")
         self.nav_invitations.clicked.connect(self._view_invitations)
         layout.addWidget(self.nav_invitations)
-        
+
         layout.addStretch()
-        
+
         # 用户信息和退出按钮
         if self.key_manager.user_keys:
             user_label = QLabel(f"👤 {self.key_manager.user_keys.username}")
             user_label.setStyleSheet("padding: 12px 24px; color: #5f6368;")
             layout.addWidget(user_label)
-        
+
         # 退出登录按钮
         logout_btn = QPushButton("🚪 退出登录")
         logout_btn.setStyleSheet("""
@@ -340,7 +551,7 @@ class MainWindow(QMainWindow):
         """)
         logout_btn.clicked.connect(self._do_logout)
         layout.addWidget(logout_btn)
-        
+
         # 修改密码按钮
         change_pwd_btn = QPushButton("🔑 修改密码")
         change_pwd_btn.setStyleSheet("""
@@ -357,7 +568,7 @@ class MainWindow(QMainWindow):
         """)
         change_pwd_btn.clicked.connect(self._change_password)
         layout.addWidget(change_pwd_btn)
-        
+
         # 解除设备信任按钮
         self.revoke_trust_btn = QPushButton("🔓 解除设备信任")
         self.revoke_trust_btn.setStyleSheet("""
@@ -374,27 +585,27 @@ class MainWindow(QMainWindow):
         """)
         self.revoke_trust_btn.clicked.connect(self._revoke_device_trust)
         layout.addWidget(self.revoke_trust_btn)
-        
+
         return sidebar
-    
+
     def _create_content(self) -> QWidget:
         """创建内容区"""
         content = QFrame()
         content.setObjectName("content")
         layout = QVBoxLayout(content)
         layout.setContentsMargins(24, 16, 24, 16)
-        
+
         # 工具栏
         toolbar = self._create_toolbar()
         layout.addWidget(toolbar)
-        
+
         # 面包屑导航
         breadcrumb_container = QWidget()
         self.breadcrumb_layout = QHBoxLayout(breadcrumb_container)
         self.breadcrumb_layout.setContentsMargins(0, 8, 0, 8)
         self.breadcrumb_layout.setSpacing(4)
         layout.addWidget(breadcrumb_container)
-        
+
         # 文件列表
         self.file_table = QTableWidget()
         self.file_table.setColumnCount(3)
@@ -410,32 +621,32 @@ class MainWindow(QMainWindow):
         self.file_table.customContextMenuRequested.connect(self._show_context_menu)
         self.file_table.doubleClicked.connect(self._on_item_double_click)
         layout.addWidget(self.file_table)
-        
+
         return content
-    
+
     def _create_toolbar(self) -> QWidget:
         """创建工具栏"""
         toolbar = QFrame()
         toolbar.setObjectName("toolbar")
         layout = QHBoxLayout(toolbar)
         layout.setContentsMargins(0, 0, 0, 0)
-        
+
         upload_btn = QPushButton(f"{Icons.UPLOAD} 上传文件")
         upload_btn.clicked.connect(self._upload_file)
         layout.addWidget(upload_btn)
-        
+
         folder_btn = QPushButton(f"{Icons.NEW_FOLDER} 新建文件夹")
         folder_btn.clicked.connect(self._create_folder)
         layout.addWidget(folder_btn)
-        
+
         layout.addStretch()
-        
+
         refresh_btn = QPushButton(f"{Icons.SYNC} 刷新")
         refresh_btn.clicked.connect(self._refresh_files)
         layout.addWidget(refresh_btn)
-        
+
         return toolbar
-    
+
     def _show_new_menu(self):
         """显示新建菜单"""
         menu = QMenu(self)
@@ -444,26 +655,31 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction("👥 创建群组", self._create_group)
         menu.exec(self.sender().mapToGlobal(self.sender().rect().bottomLeft()))
-    
+
     def _show_context_menu(self, pos):
         """显示右键菜单"""
         item = self.file_table.itemAt(pos)
         if not item:
             return
-        
+
         row = item.row()
         if row >= len(self.files):
             return
-        
+
         file = self.files[row]
         menu = QMenu(self)
-        
+
+        # 添加预览选项（仅对文件且小于100MB）
+        if not file.is_folder and file.size <= 100 * 1024 * 1024:
+            menu.addAction(f"👁️ 预览", lambda: self._preview_file(file))
+            menu.addSeparator()
+
         if not file.is_folder:
             menu.addAction(f"{Icons.DOWNLOAD} 下载", lambda: self._download_file(file))
-        
+
         menu.addAction(f"{Icons.RENAME} 重命名", lambda: self._rename_file(file))
         menu.addAction(f"{Icons.DELETE} 删除", lambda: self._delete_file(file))
-        
+
         menu.exec(self.file_table.viewport().mapToGlobal(pos))
     
     def _refresh_files(self):

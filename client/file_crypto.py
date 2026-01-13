@@ -195,7 +195,28 @@ class FileCrypto:
         """
         import gc
         from Crypto.Cipher import AES
-        
+
+        # 获取文件大小
+        file_size = encrypted_file_path.stat().st_size
+
+        # 对于小文件 (< 10MB)，使用内存解密
+        if file_size < 10 * 1024 * 1024:
+            with open(encrypted_file_path, 'rb') as enc_file:
+                encrypted_data = enc_file.read()
+
+            # 使用现有的解密方法
+            decrypted = FileCrypto.decrypt_file(encrypted_data, file_key)
+
+            with open(output_path, 'wb') as out_file:
+                out_file.write(decrypted)
+
+            del encrypted_data
+            del decrypted
+            gc.collect()
+            return
+
+
+
         with open(encrypted_file_path, 'rb') as enc_file:
             # 读取版本标记
             version = enc_file.read(1)[0]
