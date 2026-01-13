@@ -405,6 +405,7 @@ class MainWindow(QMainWindow):
         self.file_table.setColumnWidth(1, 100)
         self.file_table.setColumnWidth(2, 160)
         self.file_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.file_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)  # 禁用双击编辑
         self.file_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.file_table.customContextMenuRequested.connect(self._show_context_menu)
         self.file_table.doubleClicked.connect(self._on_item_double_click)
@@ -1222,13 +1223,34 @@ class MainWindow(QMainWindow):
     
     def _rename_file(self, file: FileItem):
         """重命名文件"""
-        name, ok = QInputDialog.getText(self, "重命名", "新名称:", text=file.name)
-        if ok and name:
-            result = self.network.rename_file(file.id, name)
-            if result.get('success'):
-                self._refresh_files()
-            else:
-                QMessageBox.critical(self, "错误", result.get('error', '重命名失败'))
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLineEdit, QDialogButtonBox
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("重命名")
+        dialog.setMinimumWidth(450)  # 设置最小宽度避免遮挡文件名
+        
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("新名称:"))
+        
+        name_input = QLineEdit(file.name)
+        name_input.selectAll()
+        layout.addWidget(name_input)
+        
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            name = name_input.text().strip()
+            if name and name != file.name:
+                result = self.network.rename_file(file.id, name)
+                if result.get('success'):
+                    self._refresh_files()
+                else:
+                    QMessageBox.critical(self, "错误", result.get('error', '重命名失败'))
     
     def _delete_file(self, file: FileItem):
         """删除文件"""

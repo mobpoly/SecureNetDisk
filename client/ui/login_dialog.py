@@ -76,7 +76,7 @@ class LoginDialog(QDialog):
         layout.addWidget(email_login_btn)
         
         # 忘记密码按钮
-        forgot_btn = QPushButton("忘记密码？使用恢复密钥")
+        forgot_btn = QPushButton("忘记密码")
         forgot_btn.setObjectName("linkButton")
         forgot_btn.clicked.connect(lambda: self.stack.setCurrentIndex(2))
         layout.addWidget(forgot_btn)

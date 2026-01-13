@@ -1,6 +1,6 @@
 """
 UI 样式表
-Material Design 风格
+
 """
 
 
@@ -8,12 +8,12 @@ class StyleSheet:
     """样式表"""
     
     # 颜色定义
-    PRIMARY = "#1a73e8"          # Google 蓝
+    PRIMARY = "#1a73e8"          
     PRIMARY_DARK = "#1557b0"
     PRIMARY_LIGHT = "#4285f4"
-    SECONDARY = "#34a853"        # Google 绿
-    ERROR = "#ea4335"            # Google 红
-    WARNING = "#fbbc04"          # Google 黄
+    SECONDARY = "#34a853"        
+    ERROR = "#ea4335"            
+    WARNING = "#fbbc04"          
     
     BACKGROUND = "#ffffff"
     SURFACE = "#f8f9fa"
@@ -182,6 +182,7 @@ class StyleSheet:
         gridline-color: #e8eaed;
         background-color: #ffffff;
         selection-background-color: #e8f0fe;
+        outline: 0;
     }
     
     QTableWidget::item {
