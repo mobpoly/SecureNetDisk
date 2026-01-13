@@ -18,6 +18,8 @@ from client.ui.login_dialog import LoginDialog
 from client.ui.main_window import MainWindow
 
 
+from client.config import config as app_config
+
 class Application:
     """应用程序管理器"""
     
@@ -26,7 +28,10 @@ class Application:
         self.app.setApplicationName("安全网盘")
         self.app.setStyle("Fusion")
         
-        self.server_info = ServerInfo(host="localhost", port=9000)
+        # 加载配置
+        app_config.load()
+        
+        self.server_info = ServerInfo(host=app_config.host, port=app_config.port)
         self.network = NetworkClient(self.server_info)
         self.key_manager = KeyManager()
         self.device_trust = DeviceTrustManager()
@@ -35,17 +40,7 @@ class Application:
     
     def run(self) -> int:
         """运行应用"""
-        # 连接服务器
-        print("正在连接服务器...")
-        if not self.network.connect():
-            QMessageBox.critical(
-                None, "连接失败", 
-                f"无法连接到服务器 {self.server_info.host}:{self.server_info.port}\n"
-                "请确保服务器已启动。"
-            )
-            return 1
-        
-        print("连接成功")
+        # 不再在此处连接服务器，移动到登录对话框中处理
         
         # 登录循环（支持退出后重新登录）
         while not self.should_exit:
