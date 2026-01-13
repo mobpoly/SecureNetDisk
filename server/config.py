@@ -106,8 +106,12 @@ class ServerConfig:
             "smtp_password": self.smtp_password
         }
         
-        with open(CONFIG_FILE, "w", encoding='utf-8') as configfile:
-            config.write(configfile)
+        try:
+            with open(CONFIG_FILE, "w", encoding='utf-8') as configfile:
+                config.write(configfile)
+        except OSError as e:
+            # 记录警告而不是让异常在初始化阶段传播
+            print(f"警告: 无法写入配置文件 '{CONFIG_FILE}': {e}")
     
     def ensure_directories(self):
         """确保必要目录存在"""
