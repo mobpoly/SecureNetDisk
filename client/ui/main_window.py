@@ -167,12 +167,14 @@ class MainWindow(QMainWindow):
         # 工具栏
         toolbar = self._create_toolbar()
         layout.addWidget(toolbar)
-        
-        # 路径导航
-        self.path_label = QLabel("我的云盘")
-        self.path_label.setStyleSheet("font-size: 18px; font-weight: 500; margin: 8px 0;")
-        layout.addWidget(self.path_label)
-        
+
+        # 面包屑导航
+        breadcrumb_container = QWidget()
+        self.breadcrumb_layout = QHBoxLayout(breadcrumb_container)
+        self.breadcrumb_layout.setContentsMargins(0, 8, 0, 8)
+        self.breadcrumb_layout.setSpacing(4)
+        layout.addWidget(breadcrumb_container)
+
         # 文件列表
         self.file_table = QTableWidget()
         self.file_table.setColumnCount(3)
@@ -244,18 +246,19 @@ class MainWindow(QMainWindow):
         menu.addAction(f"{Icons.DELETE} 删除", lambda: self._delete_file(file))
         
         menu.exec(self.file_table.viewport().mapToGlobal(pos))
-    
+
     def _refresh_files(self):
         """刷新文件列表"""
-        parent_id = self.current_path[-1] if self.current_path else None
+        parent_id = self.current_path[-1][0] if self.current_path else None
         result = self.network.get_file_list(parent_id=parent_id, group_id=self.current_group_id)
-        
+
         if result.get('success'):
             self.files = [FileItem(f) for f in result.get('files', [])]
             self._update_file_table()
+            self._create_breadcrumb()  # 刷新后更新面包屑
         else:
             self.statusBar().showMessage(f"刷新失败: {result.get('error', '未知错误')}")
-    
+
     def _update_file_table(self):
         """更新文件表格"""
         # 根据是否在群组中设置列数
@@ -305,28 +308,17 @@ class MainWindow(QMainWindow):
                 return f"{size:.1f} {unit}"
             size /= 1024
         return f"{size:.1f} TB"
-    
+
     def _on_item_double_click(self, index):
         """双击进入文件夹"""
         row = index.row()
         if row < len(self.files):
             file = self.files[row]
             if file.is_folder:
-                self.current_path.append(file.id)
-                self._update_path_label()
+                # 将文件夹添加到路径中
+                self.current_path.append((file.id, file.name))
+                self._create_breadcrumb()
                 self._refresh_files()
-    
-    def _update_path_label(self):
-        """更新路径标签"""
-        if self.current_group_id:
-            prefix = "群组空间"
-        else:
-            prefix = "我的云盘"
-        
-        if self.current_path:
-            self.path_label.setText(f"{prefix} / ...")
-        else:
-            self.path_label.setText(prefix)
     
     def _nav_my_drive(self):
         """导航到我的云盘"""
@@ -334,7 +326,7 @@ class MainWindow(QMainWindow):
         self.nav_groups.setChecked(False)
         self.current_group_id = None
         self.current_path = []
-        self.path_label.setText("我的云盘")
+        self._create_breadcrumb()
         self._refresh_files()
     
     def _nav_groups(self):
@@ -350,72 +342,75 @@ class MainWindow(QMainWindow):
         if not result.get('success'):
             QMessageBox.warning(self, "错误", result.get('error', '获取群组失败'))
             return
-        
+
         groups = result.get('groups', [])
         if not groups:
             QMessageBox.information(self, "提示", "您还没有加入任何群组")
             return
-        
+
         names = [g['name'] for g in groups]
         name, ok = QInputDialog.getItem(self, "选择群组", "请选择群组:", names, 0, False)
-        
+
         if ok and name:
             idx = names.index(name)
             self.current_group_id = groups[idx]['id']
             self.current_path = []
-            self.path_label.setText(f"群组: {name}")
+            self._create_breadcrumb()
             self._refresh_files()
-    
+
     def _upload_file(self):
         """上传文件"""
         file_path, _ = QFileDialog.getOpenFileName(self, "选择文件")
         if not file_path:
             return
-        
+
         path = Path(file_path)
         self.statusBar().showMessage(f"正在上传 {path.name}...")
-        
+
         try:
             from client.file_crypto import FileCrypto
-            
+
             # 加密文件
             file_key = FileCrypto.generate_file_key()
             encrypted_data, _ = FileCrypto.encrypt_file(path, file_key)
             encrypted_file_key = self.key_manager.encrypt_file_key(file_key)
-            
+
+            # 正确提取 parent_id
+            parent_id = self.current_path[-1][0] if self.current_path else None
+
             # 开始上传
             result = self.network.upload_file_start(
                 filename=path.name,
                 size=len(encrypted_data),
                 encrypted_file_key=encrypted_file_key.hex(),
-                parent_id=self.current_path[-1] if self.current_path else None,
+                parent_id=parent_id,
                 group_id=self.current_group_id
             )
-            
+
             if not result.get('success'):
                 QMessageBox.critical(self, "错误", result.get('error', '上传失败'))
                 return
-            
+
             upload_id = result['upload_id']
-            
+
             # 上传数据
             chunk_size = 64 * 1024
             for i in range(0, len(encrypted_data), chunk_size):
-                chunk = encrypted_data[i:i+chunk_size]
+                chunk = encrypted_data[i:i + chunk_size]
                 self.network.upload_file_data(upload_id, chunk)
-            
+
             # 结束上传
             result = self.network.upload_file_end(upload_id)
-            
+
             if result.get('success'):
                 self.statusBar().showMessage("上传成功")
                 self._refresh_files()
             else:
                 QMessageBox.critical(self, "错误", result.get('error', '上传失败'))
-                
+
         except Exception as e:
             QMessageBox.critical(self, "错误", str(e))
-    
+
     def _download_file(self, file: FileItem):
         """下载文件"""
         save_path, _ = QFileDialog.getSaveFileName(self, "保存文件", file.name)
@@ -446,21 +441,23 @@ class MainWindow(QMainWindow):
             
         except Exception as e:
             QMessageBox.critical(self, "错误", str(e))
-    
+
     def _create_folder(self):
         """创建文件夹"""
         name, ok = QInputDialog.getText(self, "新建文件夹", "文件夹名称:")
         if ok and name:
+            # 正确提取 parent_id
+            parent_id = self.current_path[-1][0] if self.current_path else None
             result = self.network.create_folder(
                 name=name,
-                parent_id=self.current_path[-1] if self.current_path else None,
+                parent_id=parent_id,
                 group_id=self.current_group_id
             )
             if result.get('success'):
                 self._refresh_files()
             else:
                 QMessageBox.critical(self, "错误", result.get('error', '创建失败'))
-    
+
     def _rename_file(self, file: FileItem):
         """重命名文件"""
         name, ok = QInputDialog.getText(self, "重命名", "新名称:", text=file.name)
@@ -827,3 +824,135 @@ class MainWindow(QMainWindow):
         
         confirm_btn.clicked.connect(do_revoke)
         dialog.exec()
+
+    def _create_breadcrumb(self):
+        """创建面包屑导航"""
+        # 清空现有的面包屑
+        while self.breadcrumb_layout.count():
+            item = self.breadcrumb_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # 根路径
+        if self.current_group_id:
+            root_text = "群组空间"
+        else:
+            root_text = "我的云盘"
+
+        # 如果有子路径，显示返回按钮
+        if self.current_path:
+            back_btn = QPushButton("← 返回上一级")
+            back_btn.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    color: #1a73e8;
+                    border: none;
+                    padding: 4px 8px;
+                    font-size: 14px;
+                    font-weight: 500;
+                }
+                QPushButton:hover {
+                    background: #e8f0fe;
+                    border-radius: 4px;
+                }
+            """)
+            back_btn.clicked.connect(self._go_back)
+            self.breadcrumb_layout.addWidget(back_btn)
+
+            # 分隔符
+            separator = QLabel("|")
+            separator.setStyleSheet("color: #dadce0; padding: 0 8px;")
+            self.breadcrumb_layout.addWidget(separator)
+
+        # 根目录按钮
+        root_btn = QPushButton(root_text)
+        root_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                color: #1a73e8;
+                border: none;
+                padding: 4px 8px;
+                font-size: 14px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background: #e8f0fe;
+                border-radius: 4px;
+            }
+        """)
+        root_btn.clicked.connect(self._go_to_root)
+        self.breadcrumb_layout.addWidget(root_btn)
+
+        # 决定显示哪些路径（智能省略中间部分）
+        path_len = len(self.current_path)
+        if path_len > 0:
+            # 显示最后4级（如果有的话）
+            display_items = []
+
+            if path_len <= 4:
+                # 路径短，全部显示
+                display_items = list(enumerate(self.current_path))
+            else:
+                # 路径长，显示省略号 + 最后4级
+                display_items = [
+                    (None, (None, "...")),  # 省略号占位
+                    (path_len - 4, self.current_path[-4]),  # 倒数第4级
+                    (path_len - 3, self.current_path[-3]),  # 倒数第3级
+                    (path_len - 2, self.current_path[-2]),  # 倒数第2级
+                    (path_len - 1, self.current_path[-1])  # 最后1级
+                ]
+
+            # 添加路径中的每个文件夹
+            for idx, (folder_id, folder_name) in display_items:
+                # 分隔符
+                separator = QLabel("/")
+                separator.setStyleSheet("color: #5f6368; padding: 0 4px; font-size: 14px;")
+                self.breadcrumb_layout.addWidget(separator)
+
+                if idx is None:
+                    # 省略号（不可点击）
+                    ellipsis = QLabel(folder_name)
+                    ellipsis.setStyleSheet("color: #5f6368; padding: 4px 8px; font-size: 14px;")
+                    self.breadcrumb_layout.addWidget(ellipsis)
+                else:
+                    # 文件夹按钮
+                    folder_btn = QPushButton(folder_name)
+                    folder_btn.setStyleSheet("""
+                        QPushButton {
+                            background: transparent;
+                            color: #1a73e8;
+                            border: none;
+                            padding: 4px 8px;
+                            font-size: 14px;
+                            font-weight: 500;
+                        }
+                        QPushButton:hover {
+                            background: #e8f0fe;
+                            border-radius: 4px;
+                        }
+                    """)
+                    # 使用 lambda 捕获当前索引
+                    folder_btn.clicked.connect(lambda checked, i=idx: self._go_to_path(i))
+                    self.breadcrumb_layout.addWidget(folder_btn)
+
+        self.breadcrumb_layout.addStretch()
+
+    def _go_back(self):
+        """返回上一级"""
+        if self.current_path:
+            self.current_path.pop()
+            self._create_breadcrumb()
+            self._refresh_files()
+
+    def _go_to_root(self):
+        """返回根目录"""
+        self.current_path = []
+        self._create_breadcrumb()
+        self._refresh_files()
+
+    def _go_to_path(self, index):
+        """跳转到指定路径"""
+        # 保留到指定索引的路径
+        self.current_path = self.current_path[:index + 1]
+        self._create_breadcrumb()
+        self._refresh_files()
