@@ -310,64 +310,6 @@ class LoginDialog(QDialog):
         
         layout.addStretch()
         return page
-
-    def _do_email_login(self):
-        """邮箱验证码登录"""
-        if not self._ensure_connection():
-            return
-        email = self.email_input.text().strip()
-        code = self.email_code_input.text().strip()
-        
-        if not email or not code:
-            QMessageBox.warning(self, "提示", "请输入邮箱和验证码")
-            return
-        
-        # 检查该邮箱是否信任此设备
-        is_trusted = self.device_trust and self.device_trust.has_trusted_device(email)
-        
-        if is_trusted:
-            # 信任设备：先从本地解密
-            device_data = self.device_trust.unlock_from_device(email)
-            if device_data:
-                # 验证邮箱验证码
-                result = self.network.login_email(email, code)
-                if result.get('success'):
-                    # 使用本地存储的密钥
-                    self.key_manager.unlock_from_device(device_data)
-                    self.login_success.emit(result)
-                    self.accept()
-                    return
-                else:
-                    QMessageBox.critical(self, "错误", result.get('error', '验证码错误'))
-                    return
-        
-        # 非信任设备：需要密码
-        password = self.email_password_input.text()
-        if not password:
-            QMessageBox.warning(self, "提示", "请输入密码")
-            return
-        
-        # 验证邮箱验证码
-        result = self.network.login_email(email, code)
-        if not result.get('success'):
-            QMessageBox.critical(self, "错误", result.get('error', '验证码错误'))
-            return
-        
-        # 使用密码解锁密钥
-        if self.key_manager.unlock_with_password(password, result):
-            # 检查是否需要询问信任设备（仅当该邮箱未信任时）
-            if self.device_trust and not self.device_trust.has_trusted_device(email):
-                self._pending_trust_data = {
-                    'result': result,
-                    'email': email
-                }
-                self._ask_trust_device()
-            else:
-                self.login_success.emit(result)
-                self.accept()
-        else:
-            QMessageBox.critical(self, "错误", "密码错误，无法解锁密钥")
-    
     def _refresh_trust_ui(self):
         """刷新设备信任相关的UI"""
         trusted_emails = []
