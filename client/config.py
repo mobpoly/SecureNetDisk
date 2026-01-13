@@ -51,7 +51,7 @@ class ClientConfig:
             "last_username": self.last_username
         }
         
-        with open(CONFIG_FILE, "w") as configfile:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as configfile:
             config.write(configfile)
 
     def add_to_history(self, host: str, port: int):
