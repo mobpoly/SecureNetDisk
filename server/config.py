@@ -51,12 +51,6 @@ class ServerConfig:
         self.smtp_user = os.environ.get('SMTP_USER', self.smtp_user)
         self.smtp_password = os.environ.get('SMTP_PASSWORD', self.smtp_password)
 
-        # 转换为 Path 对象
-        self.base_path = Path(self.base_path)
-        self.database_path = Path(self.database_path)
-        self.server_private_key_path = Path(self.server_private_key_path)
-        self.server_public_key_path = Path(self.server_public_key_path)
-
     def load_from_file(self):
         """从 server.ini 加载配置"""
         config = configparser.ConfigParser()
