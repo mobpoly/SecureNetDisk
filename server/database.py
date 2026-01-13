@@ -145,6 +145,23 @@ class Database:
             cur.execute('CREATE INDEX IF NOT EXISTS idx_files_parent ON files(parent_id)')
             cur.execute('CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(group_id)')
             cur.execute('CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id)')
+            
+            # 通知表
+            cur.execute('''
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    type TEXT NOT NULL,
+                    reference_id INTEGER,
+                    group_id INTEGER,
+                    message TEXT,
+                    is_read INTEGER DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id),
+                    FOREIGN KEY (group_id) REFERENCES groups(id)
+                )
+            ''')
+            cur.execute('CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read)')
     
     # ============ 用户操作 ============
     
@@ -231,7 +248,7 @@ class Database:
     
     # ============ 群组操作 ============
     
-    def create_group(self, name: str, owner_id: int) -> int:
+    def create_group(self, name: str, owner_id: int, encrypted_group_key: bytes = b'') -> int:
         """创建群组"""
         with self.cursor() as cur:
             cur.execute('''
@@ -240,11 +257,11 @@ class Database:
             ''', (name, owner_id, datetime.now().isoformat()))
             group_id = cur.lastrowid
             
-            # 群主自动加入群组
+            # 群主自动加入群组，保存加密的群组密钥
             cur.execute('''
                 INSERT INTO group_members (group_id, user_id, encrypted_group_key, role, joined_at)
                 VALUES (?, ?, ?, 'owner', ?)
-            ''', (group_id, owner_id, b'', datetime.now().isoformat()))
+            ''', (group_id, owner_id, encrypted_group_key, datetime.now().isoformat()))
             
             return group_id
     
@@ -272,7 +289,7 @@ class Database:
         """获取群组成员列表"""
         with self.cursor() as cur:
             cur.execute('''
-                SELECT u.id, u.username, u.email, u.public_key, gm.role, gm.joined_at
+                SELECT u.id, u.username, u.email, u.public_key, gm.role, gm.joined_at, gm.encrypted_group_key
                 FROM users u
                 JOIN group_members gm ON u.id = gm.user_id
                 WHERE gm.group_id = ?
@@ -402,9 +419,12 @@ class Database:
             params = []
             
             if owner_id is not None:
+                # 个人文件：必须是该用户的文件且不属于任何群组
                 conditions.append('f.owner_id = ?')
+                conditions.append('f.group_id IS NULL')
                 params.append(owner_id)
             if group_id is not None:
+                # 群组文件：只看该群组的文件
                 conditions.append('f.group_id = ?')
                 params.append(group_id)
             
@@ -438,8 +458,9 @@ class Database:
         """通过路径获取文件"""
         with self.cursor() as cur:
             if owner_id:
+                # 个人文件路径查询需要排除群组文件
                 cur.execute('''
-                    SELECT * FROM files WHERE path = ? AND owner_id = ?
+                    SELECT * FROM files WHERE path = ? AND owner_id = ? AND group_id IS NULL
                 ''', (path, owner_id))
             elif group_id:
                 cur.execute('''
@@ -492,3 +513,67 @@ class Database:
                 SELECT * FROM files WHERE {where_clause} ORDER BY name
             ''', params)
             return [dict(row) for row in cur.fetchall()]
+    
+    # ============ 通知操作 ============
+    
+    def create_notification(self, user_id: int, notification_type: str, 
+                           reference_id: int = None, group_id: int = None,
+                           message: str = None):
+        """创建通知"""
+        with self.cursor() as cur:
+            cur.execute('''
+                INSERT INTO notifications (user_id, type, reference_id, group_id, message, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, notification_type, reference_id, group_id, message,
+                  datetime.now().isoformat()))
+    
+    def get_unread_notification_counts(self, user_id: int) -> Dict:
+        """获取用户未读通知数量统计"""
+        with self.cursor() as cur:
+            # 邀请通知总数
+            cur.execute('''
+                SELECT COUNT(*) FROM notifications 
+                WHERE user_id = ? AND type = 'invitation' AND is_read = 0
+            ''', (user_id,))
+            invitation_count = cur.fetchone()[0]
+            
+            # 新文件通知总数
+            cur.execute('''
+                SELECT COUNT(*) FROM notifications 
+                WHERE user_id = ? AND type = 'new_file' AND is_read = 0
+            ''', (user_id,))
+            file_count = cur.fetchone()[0]
+            
+            # 按群组统计新文件通知
+            cur.execute('''
+                SELECT group_id, COUNT(*) as count FROM notifications 
+                WHERE user_id = ? AND type = 'new_file' AND is_read = 0
+                GROUP BY group_id
+            ''', (user_id,))
+            group_counts = {row['group_id']: row['count'] for row in cur.fetchall()}
+            
+            return {
+                'invitation_count': invitation_count,
+                'file_count': file_count,
+                'group_file_counts': group_counts
+            }
+    
+    def mark_notifications_read(self, user_id: int, notification_type: str = None, 
+                                group_id: int = None):
+        """标记通知为已读"""
+        with self.cursor() as cur:
+            if notification_type == 'invitation':
+                cur.execute('''
+                    UPDATE notifications SET is_read = 1 
+                    WHERE user_id = ? AND type = 'invitation'
+                ''', (user_id,))
+            elif notification_type == 'new_file' and group_id:
+                cur.execute('''
+                    UPDATE notifications SET is_read = 1 
+                    WHERE user_id = ? AND type = 'new_file' AND group_id = ?
+                ''', (user_id, group_id))
+            elif notification_type == 'new_file':
+                cur.execute('''
+                    UPDATE notifications SET is_read = 1 
+                    WHERE user_id = ? AND type = 'new_file'
+                ''', (user_id,))

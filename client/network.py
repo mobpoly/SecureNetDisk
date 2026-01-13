@@ -249,11 +249,24 @@ class NetworkClient:
             'upload_id': upload_id
         })
     
-    def download_file(self, file_id: int) -> dict:
-        """下载文件"""
+    def upload_file_cancel(self, upload_id: str) -> dict:
+        """取消文件上传"""
+        return self.send_request(PacketType.FILE_UPLOAD_CANCEL, {
+            'upload_id': upload_id
+        })
+    
+    def download_file_start(self, file_id: int) -> dict:
+        """开始文件下载 - 返回元数据"""
         return self.send_request(PacketType.FILE_DOWNLOAD_REQUEST, {
             'file_id': file_id
-        })
+        }, timeout=60)
+    
+    def download_file_data(self, download_id: str, chunk_size: int = 256 * 1024) -> dict:
+        """获取下载数据块"""
+        return self.send_request(PacketType.FILE_DOWNLOAD_DATA, {
+            'download_id': download_id,
+            'chunk_size': chunk_size
+        }, timeout=60)
     
     def delete_file(self, file_id: int) -> dict:
         """删除文件"""
@@ -278,10 +291,11 @@ class NetworkClient:
             'path': '/' + name
         })
     
-    def create_group(self, name: str) -> dict:
+    def create_group(self, name: str, encrypted_group_key: str = None) -> dict:
         """创建群组"""
         return self.send_request(PacketType.GROUP_CREATE_REQUEST, {
-            'name': name
+            'name': name,
+            'encrypted_group_key': encrypted_group_key
         })
     
     def get_groups(self) -> dict:
@@ -312,6 +326,12 @@ class NetworkClient:
     
     def get_group_members(self, group_id: int) -> dict:
         """获取群组成员"""
+        return self.send_request(PacketType.GROUP_MEMBERS_REQUEST, {
+            'group_id': group_id
+        })
+    
+    def get_group_key(self, group_id: int) -> dict:
+        """获取群组密钥"""
         return self.send_request(PacketType.GROUP_KEY_REQUEST, {
             'group_id': group_id
         })
@@ -320,4 +340,15 @@ class NetworkClient:
         """获取用户公钥"""
         return self.send_request(PacketType.USER_PUBLIC_KEY_REQUEST, {
             'username': username
+        })
+    
+    def get_notification_counts(self) -> dict:
+        """获取未读通知计数"""
+        return self.send_request(PacketType.NOTIFICATION_COUNT_REQUEST, {})
+    
+    def mark_notification_read(self, notification_type: str, group_id: int = None) -> dict:
+        """标记通知已读"""
+        return self.send_request(PacketType.NOTIFICATION_READ_REQUEST, {
+            'type': notification_type,
+            'group_id': group_id
         })

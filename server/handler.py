@@ -39,8 +39,9 @@ class RequestHandler:
             smtp_password=config.smtp_password
         )
         
-        # 文件上传会话
+        # 文件上传/下载会话
         self._upload_sessions = {}
+        self._download_sessions = {}
     
     def handle(self, session: Session, packet_type: PacketType, 
                payload: bytes) -> Tuple[Optional[PacketType], Optional[bytes]]:
@@ -67,7 +68,9 @@ class RequestHandler:
             PacketType.FILE_UPLOAD_START: self._handle_upload_start,
             PacketType.FILE_UPLOAD_DATA: self._handle_upload_data,
             PacketType.FILE_UPLOAD_END: self._handle_upload_end,
+            PacketType.FILE_UPLOAD_CANCEL: self._handle_upload_cancel,
             PacketType.FILE_DOWNLOAD_REQUEST: self._handle_download_request,
+            PacketType.FILE_DOWNLOAD_DATA: self._handle_download_data,
             PacketType.FILE_DELETE_REQUEST: self._handle_delete,
             PacketType.FILE_RENAME_REQUEST: self._handle_rename,
             PacketType.FOLDER_CREATE_REQUEST: self._handle_create_folder,
@@ -79,9 +82,14 @@ class RequestHandler:
             PacketType.GROUP_JOIN_REQUEST: self._handle_group_join,
             PacketType.GROUP_LEAVE_REQUEST: self._handle_group_leave,
             PacketType.GROUP_KEY_REQUEST: self._handle_group_key,
+            PacketType.GROUP_MEMBERS_REQUEST: self._handle_group_members,
             
             # 用户信息
             PacketType.USER_PUBLIC_KEY_REQUEST: self._handle_user_public_key,
+            
+            # 通知
+            PacketType.NOTIFICATION_COUNT_REQUEST: self._handle_notification_count,
+            PacketType.NOTIFICATION_READ_REQUEST: self._handle_notification_read,
         }
         
         handler = handlers.get(packet_type)
@@ -492,14 +500,24 @@ class RequestHandler:
                 parent_id=parent_id
             )
             
-            # 创建上传会话
+            # 创建上传会话 - 直接写入临时文件，避免内存占用
+            import tempfile
             upload_id = os.urandom(16).hex()
+            
+            # 创建临时文件用于接收上传数据
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.upload')
+            temp_file = os.fdopen(temp_fd, 'wb')
+            
             self._upload_sessions[upload_id] = {
                 'file_id': file_id,
                 'storage_path': storage_path,
                 'received': 0,
                 'total': size,
-                'data': b''
+                'temp_file': temp_file,  # 临时文件对象
+                'temp_path': temp_path,  # 临时文件路径
+                'group_id': group_id,
+                'filename': filename,
+                'uploader_id': session.user_id
             }
             
             return PacketType.FILE_UPLOAD_START, json.dumps({
@@ -528,7 +546,8 @@ class RequestHandler:
                     'error': '上传会话不存在'
                 }).encode()
             
-            upload['data'] += data
+            # 直接写入临时文件，不占用内存
+            upload['temp_file'].write(data)
             upload['received'] += len(data)
             
             return PacketType.FILE_UPLOAD_DATA, json.dumps({
@@ -555,12 +574,32 @@ class RequestHandler:
                     'error': '上传会话不存在'
                 }).encode()
             
-            # 保存文件
-            if not self.storage.save_file(upload['storage_path'], upload['data']):
-                return PacketType.FILE_UPLOAD_END, json.dumps({
-                    'success': False,
-                    'error': '保存文件失败'
-                }).encode()
+            # 关闭临时文件
+            temp_file = upload['temp_file']
+            temp_path = upload['temp_path']
+            temp_file.close()
+            
+            # 移动临时文件到存储位置（使用流式复制避免内存占用）
+            import shutil
+            storage_full_path = str(self.storage.get_absolute_path(upload['storage_path']))
+            os.makedirs(os.path.dirname(storage_full_path), exist_ok=True)
+            shutil.move(temp_path, storage_full_path)
+            
+            # 如果是群组文件，为其他成员创建通知
+            group_id = upload.get('group_id')
+            if group_id:
+                members = self.db.get_group_members(group_id)
+                uploader_id = upload.get('uploader_id')
+                filename = upload.get('filename')
+                for member in members:
+                    if member['id'] != uploader_id:
+                        self.db.create_notification(
+                            user_id=member['id'],
+                            notification_type='new_file',
+                            reference_id=upload['file_id'],
+                            group_id=group_id,
+                            message=f"群组有新文件: {filename}"
+                        )
             
             return PacketType.FILE_UPLOAD_END, json.dumps({
                 'success': True,
@@ -572,9 +611,39 @@ class RequestHandler:
                 'error': str(e)
             }).encode()
     
+    def _handle_upload_cancel(self, session: Session, 
+                              payload: bytes) -> Tuple[PacketType, bytes]:
+        """处理上传取消"""
+        try:
+            data = json.loads(payload.decode('utf-8'))
+            upload_id = data['upload_id']
+            
+            upload = self._upload_sessions.pop(upload_id, None)
+            if upload:
+                # 关闭并删除临时文件
+                try:
+                    upload['temp_file'].close()
+                    os.unlink(upload['temp_path'])
+                except:
+                    pass
+                
+                # 删除数据库中的文件记录
+                file_id = upload.get('file_id')
+                if file_id:
+                    self.db.delete_file(file_id)
+            
+            return PacketType.FILE_UPLOAD_CANCEL, json.dumps({
+                'success': True
+            }).encode()
+        except Exception as e:
+            return PacketType.FILE_UPLOAD_CANCEL, json.dumps({
+                'success': False,
+                'error': str(e)
+            }).encode()
+    
     def _handle_download_request(self, session: Session, 
                                  payload: bytes) -> Tuple[PacketType, bytes]:
-        """处理下载请求"""
+        """处理下载请求 - 返回元数据，准备分块下载"""
         auth_error = self._require_auth(session)
         if auth_error:
             return auth_error
@@ -591,40 +660,110 @@ class RequestHandler:
                 }).encode()
             
             # 验证权限
-            if file_info['owner_id'] and file_info['owner_id'] != session.user_id:
-                return PacketType.FILE_DOWNLOAD_START, json.dumps({
-                    'success': False,
-                    'error': '无权访问此文件'
-                }).encode()
-            
             if file_info['group_id']:
                 if not self.db.is_group_member(file_info['group_id'], session.user_id):
                     return PacketType.FILE_DOWNLOAD_START, json.dumps({
                         'success': False,
                         'error': '无权访问此文件'
                     }).encode()
+            else:
+                if file_info['owner_id'] and file_info['owner_id'] != session.user_id:
+                    return PacketType.FILE_DOWNLOAD_START, json.dumps({
+                        'success': False,
+                        'error': '无权访问此文件'
+                    }).encode()
             
-            # 读取文件数据
-            file_data = self.storage.read_file(file_info['storage_path'])
-            if file_data is None:
+            # 获取文件路径和大小（不读取到内存）
+            storage_path = file_info['storage_path']
+            full_path = str(self.storage.get_absolute_path(storage_path))
+            
+            if not os.path.exists(full_path):
                 return PacketType.FILE_DOWNLOAD_START, json.dumps({
                     'success': False,
                     'error': '文件数据不存在'
                 }).encode()
             
+            file_size = os.path.getsize(full_path)
+            
+            # 创建下载会话 - 只存储文件路径，不加载数据
+            import uuid
+            download_id = str(uuid.uuid4())
+            
+            self._download_sessions[download_id] = {
+                'file_id': file_id,
+                'file_path': full_path,  # 存储文件路径字符串
+                'file_handle': None,     # 延迟打开文件
+                'offset': 0,
+                'size': file_size
+            }
+            
+            # 返回元数据（不包含文件数据）
             return PacketType.FILE_DOWNLOAD_START, json.dumps({
                 'success': True,
+                'download_id': download_id,
                 'file_id': file_id,
                 'filename': file_info['name'],
-                'size': len(file_data),
-                'encrypted_file_key': file_info['encrypted_file_key'].hex(),
-                'data': file_data.hex()
+                'size': file_size,
+                'encrypted_file_key': file_info['encrypted_file_key'].hex()
             }).encode()
         except Exception as e:
             return PacketType.FILE_DOWNLOAD_START, json.dumps({
                 'success': False,
                 'error': str(e)
             }).encode()
+    
+    def _handle_download_data(self, session: Session, 
+                              payload: bytes) -> Tuple[PacketType, bytes]:
+        """处理下载数据请求 - 从文件读取数据块"""
+        try:
+            data = json.loads(payload.decode('utf-8'))
+            download_id = data['download_id']
+            chunk_size = data.get('chunk_size', 256 * 1024)  # 默认256KB
+            
+            download = self._download_sessions.get(download_id)
+            if not download:
+                return PacketType.FILE_DOWNLOAD_DATA, json.dumps({
+                    'success': False,
+                    'error': '下载会话不存在'
+                }).encode()
+            
+            # 延迟打开文件（第一次请求数据时打开）
+            if download['file_handle'] is None:
+                download['file_handle'] = open(download['file_path'], 'rb')
+            
+            file_handle = download['file_handle']
+            total_size = download['size']
+            
+            # 从文件读取一块数据
+            chunk = file_handle.read(chunk_size)
+            download['offset'] += len(chunk)
+            
+            # 检查是否完成
+            is_complete = download['offset'] >= total_size or len(chunk) == 0
+            
+            import base64
+            
+            response = {
+                'success': True,
+                'download_id': download_id,
+                'offset': download['offset'] - len(chunk),
+                'chunk_size': len(chunk),
+                'is_complete': is_complete,
+                'data': base64.b64encode(chunk).decode('ascii')
+            }
+            
+            # 如果完成，关闭文件并清理会话
+            if is_complete:
+                file_handle.close()
+                del self._download_sessions[download_id]
+            
+            return PacketType.FILE_DOWNLOAD_DATA, json.dumps(response).encode()
+        except Exception as e:
+            return PacketType.FILE_DOWNLOAD_DATA, json.dumps({
+                'success': False,
+                'error': str(e)
+            }).encode()
+    
     
     def _handle_delete(self, session: Session, 
                        payload: bytes) -> Tuple[PacketType, bytes]:
@@ -645,11 +784,20 @@ class RequestHandler:
                 }).encode()
             
             # 验证权限
-            if file_info['owner_id'] and file_info['owner_id'] != session.user_id:
-                return PacketType.FILE_DELETE_RESPONSE, json.dumps({
-                    'success': False,
-                    'error': '无权删除此文件'
-                }).encode()
+            # 群组文件：任何群组成员可删除
+            # 个人文件：只有所有者可删除
+            if file_info['group_id']:
+                if not self.db.is_group_member(file_info['group_id'], session.user_id):
+                    return PacketType.FILE_DELETE_RESPONSE, json.dumps({
+                        'success': False,
+                        'error': '无权删除此文件'
+                    }).encode()
+            else:
+                if file_info['owner_id'] and file_info['owner_id'] != session.user_id:
+                    return PacketType.FILE_DELETE_RESPONSE, json.dumps({
+                        'success': False,
+                        'error': '无权删除此文件'
+                    }).encode()
             
             # 删除物理文件
             if not file_info['is_folder']:
@@ -687,11 +835,20 @@ class RequestHandler:
                 }).encode()
             
             # 验证权限
-            if file_info['owner_id'] and file_info['owner_id'] != session.user_id:
-                return PacketType.FILE_RENAME_RESPONSE, json.dumps({
-                    'success': False,
-                    'error': '无权修改此文件'
-                }).encode()
+            # 群组文件：任何群组成员可重命名
+            # 个人文件：只有所有者可重命名
+            if file_info['group_id']:
+                if not self.db.is_group_member(file_info['group_id'], session.user_id):
+                    return PacketType.FILE_RENAME_RESPONSE, json.dumps({
+                        'success': False,
+                        'error': '无权修改此文件'
+                    }).encode()
+            else:
+                if file_info['owner_id'] and file_info['owner_id'] != session.user_id:
+                    return PacketType.FILE_RENAME_RESPONSE, json.dumps({
+                        'success': False,
+                        'error': '无权修改此文件'
+                    }).encode()
             
             self.db.update_file(file_id, name=new_name)
             
@@ -752,8 +909,10 @@ class RequestHandler:
         try:
             data = json.loads(payload.decode('utf-8'))
             name = data['name']
+            encrypted_group_key_hex = data.get('encrypted_group_key', '')
+            encrypted_group_key = bytes.fromhex(encrypted_group_key_hex) if encrypted_group_key_hex else b''
             
-            group_id = self.db.create_group(name, session.user_id)
+            group_id = self.db.create_group(name, session.user_id, encrypted_group_key)
             
             return PacketType.GROUP_CREATE_RESPONSE, json.dumps({
                 'success': True,
@@ -830,6 +989,16 @@ class RequestHandler:
             # 创建邀请
             invitation_id = self.db.create_invitation(
                 group_id, session.user_id, invitee.id, encrypted_group_key
+            )
+            
+            # 创建通知
+            group = self.db.get_group(group_id)
+            self.db.create_notification(
+                user_id=invitee.id,
+                notification_type='invitation',
+                reference_id=invitation_id,
+                group_id=group_id,
+                message=f"您被邀请加入群组: {group['name'] if group else '未知群组'}"
             )
             
             return PacketType.GROUP_INVITE_RESPONSE, json.dumps({
@@ -940,9 +1109,13 @@ class RequestHandler:
                 for m in members
             ]
             
+            # 获取当前用户的加密群组密钥
+            encrypted_group_key = member.get('encrypted_group_key')
+            
             return PacketType.GROUP_KEY_RESPONSE, json.dumps({
                 'success': True,
-                'members': member_keys
+                'members': member_keys,
+                'encrypted_group_key': encrypted_group_key.hex() if encrypted_group_key else None
             }).encode()
         except Exception as e:
             return PacketType.GROUP_KEY_RESPONSE, json.dumps({
@@ -976,6 +1149,90 @@ class RequestHandler:
             }).encode()
         except Exception as e:
             return PacketType.USER_PUBLIC_KEY_RESPONSE, json.dumps({
+                'success': False,
+                'error': str(e)
+            }).encode()
+    
+    def _handle_group_members(self, session: Session, 
+                               payload: bytes) -> Tuple[PacketType, bytes]:
+        """处理获取群组成员请求"""
+        auth_error = self._require_auth(session)
+        if auth_error:
+            return auth_error
+        
+        try:
+            data = json.loads(payload.decode('utf-8'))
+            group_id = data['group_id']
+            
+            # 检查用户是否为群组成员
+            if not self.db.is_group_member(group_id, session.user_id):
+                return PacketType.GROUP_MEMBERS_RESPONSE, json.dumps({
+                    'success': False,
+                    'error': '您不是此群组成员'
+                }).encode()
+            
+            # 获取成员信息
+            members = self.db.get_group_members(group_id)
+            member_list = []
+            for m in members:
+                member_list.append({
+                    'id': m['id'],
+                    'username': m['username'],
+                    'email': m.get('email', ''),
+                    'role': m['role']
+                })
+            
+            return PacketType.GROUP_MEMBERS_RESPONSE, json.dumps({
+                'success': True,
+                'members': member_list
+            }).encode()
+            
+        except Exception as e:
+            return PacketType.GROUP_MEMBERS_RESPONSE, json.dumps({
+                'success': False,
+                'error': str(e)
+            }).encode()
+    
+    def _handle_notification_count(self, session: Session, 
+                                   payload: bytes) -> Tuple[PacketType, bytes]:
+        """处理获取通知计数请求"""
+        auth_error = self._require_auth(session)
+        if auth_error:
+            return auth_error
+        
+        try:
+            counts = self.db.get_unread_notification_counts(session.user_id)
+            return PacketType.NOTIFICATION_COUNT_RESPONSE, json.dumps({
+                'success': True,
+                'invitation_count': counts['invitation_count'],
+                'file_count': counts['file_count'],
+                'group_file_counts': counts['group_file_counts']
+            }).encode()
+        except Exception as e:
+            return PacketType.NOTIFICATION_COUNT_RESPONSE, json.dumps({
+                'success': False,
+                'error': str(e)
+            }).encode()
+    
+    def _handle_notification_read(self, session: Session, 
+                                  payload: bytes) -> Tuple[PacketType, bytes]:
+        """处理标记通知已读请求"""
+        auth_error = self._require_auth(session)
+        if auth_error:
+            return auth_error
+        
+        try:
+            data = json.loads(payload.decode('utf-8'))
+            notification_type = data.get('type')
+            group_id = data.get('group_id')
+            
+            self.db.mark_notifications_read(session.user_id, notification_type, group_id)
+            
+            return PacketType.NOTIFICATION_READ_RESPONSE, json.dumps({
+                'success': True
+            }).encode()
+        except Exception as e:
+            return PacketType.NOTIFICATION_READ_RESPONSE, json.dumps({
                 'success': False,
                 'error': str(e)
             }).encode()
