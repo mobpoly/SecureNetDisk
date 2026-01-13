@@ -209,7 +209,7 @@ class LoginDialog(QDialog):
         # Update combo box if needed (optional, but good for UX)
         current_entry = f"{app_config.host}:{app_config.port}"
         if self.host_combo.findText(current_entry) == -1:
-             self.host_combo.insertItem(0, current_entry)
+            self.host_combo.insertItem(0, current_entry)
         self.host_combo.setCurrentText(current_entry)
         
         app_config.save()
