@@ -20,6 +20,7 @@ pip install -r requirements.txt
 
 ## 启动
 
+### 启动服务端
 ```bash
 # 启动服务端 (默认端口 9000)
 python -m server.main
@@ -27,6 +28,21 @@ python -m server.main
 # 启动客户端
 python -m client.main
 ```
+
+## 分布式部署与打包
+
+项目支持将客户端和服务端部署在不同的机器上。
+
+### 1. 自动化打包 (Windows)
+运行以下脚本生成独立运行文件夹：
+```bash
+python scripts/build.py
+```
+打包产物将位于 `dist/SecureDiskClient` 和 `dist/SecureDiskServer`。
+
+### 2. 配置与连接
+- **服务端**: 首次运行后会生成 `server.ini`。修改 `[Network] host = 0.0.0.0` 以允许外部连接。
+- **客户端**: 在登录界面打开“服务器设置”，输入服务端的 IP 地址和端口。系统会自动记录历史服务器列表。
 
 ## 技术栈
 
