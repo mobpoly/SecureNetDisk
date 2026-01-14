@@ -1064,19 +1064,20 @@ class MainWindow(QMainWindow):
 
         if self.network.connect():
             # 物理连接成功，检查是否有缓存的凭据进行静默登录
-            auth_cache = getattr(self.network, '_auth_cache', {})
-            if auth_cache and auth_cache.get('login_type') == 'password':
-                self._set_status_msg("正在恢复会话...")
-                login_res = self.network.login_password(
-                    auth_cache['username'], 
-                    auth_cache['password']
-                )
-                if login_res.get('success'):
-                    self._set_status_msg("会话已恢复", 3000)
-                    self._refresh_notifications()
-                    self.reconnect_btn.setEnabled(True)
-                    self.reconnect_btn.setText("🔄 恢复连接")
-                    return
+            if self.network._is_auth_cache_valid():
+                auth_cache = self.network._auth_cache
+                if auth_cache.get('login_type') == 'password':
+                    self._set_status_msg("正在恢复会话...")
+                    login_res = self.network.login_password(
+                        auth_cache['username'], 
+                        auth_cache['password']
+                    )
+                    if login_res.get('success'):
+                        self._set_status_msg("会话已恢复", 3000)
+                        self._refresh_notifications()
+                        self.reconnect_btn.setEnabled(True)
+                        self.reconnect_btn.setText("🔄 恢复连接")
+                        return
             
             # 如果没有缓存或登录失败，强制登出
             self._set_status_msg("会话失效，请重新登录")

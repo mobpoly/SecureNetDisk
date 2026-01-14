@@ -5,11 +5,15 @@
 
 import json
 import socket
+import time
 from typing import Optional, Tuple, Callable
 from dataclasses import dataclass
 
 from protocol.packet import PacketType
 from protocol.secure_channel import SecureChannel, SecureChannelBuilder
+
+# 认证缓存过期时间（秒）- 默认15分钟
+AUTH_CACHE_TTL = 900
 
 
 @dataclass
@@ -35,6 +39,7 @@ class NetworkClient:
         self.channel: Optional[SecureChannel] = None
         self._connected = False
         self._auth_cache = {}  # 缓存登录凭据用于静默重连
+        self._auth_cache_expiry = 0  # 认证缓存过期时间戳
     
     def connect(self) -> bool:
         """
@@ -80,6 +85,8 @@ class NetworkClient:
             self.sock.close()
         self.channel = None
         self.sock = None
+        # 清除认证缓存以防止未授权访问
+        self.clear_auth_cache()
         print("[Client] 已断开连接")
     
     @property
@@ -97,6 +104,22 @@ class NetworkClient:
         except:
             self._connected = False
             return False
+    
+    def _is_auth_cache_valid(self) -> bool:
+        """
+        检查认证缓存是否有效（未过期）
+        
+        Returns:
+            缓存是否有效
+        """
+        if not self._auth_cache:
+            return False
+        return time.time() < self._auth_cache_expiry
+    
+    def clear_auth_cache(self):
+        """清除认证缓存"""
+        self._auth_cache = {}
+        self._auth_cache_expiry = 0
 
     def send_request(self, packet_type: PacketType, 
                      data: dict, timeout: float = 30) -> Optional[dict]:
@@ -191,11 +214,13 @@ class NetworkClient:
             'password': password  # 发送预哈希后的密码
         })
         if result.get('success'):
+            # 缓存凭据并设置过期时间
             self._auth_cache = {
                 'login_type': 'password',
                 'username': username,
                 'password': password
             }
+            self._auth_cache_expiry = time.time() + AUTH_CACHE_TTL
         return result
     
     def login_email(self, email: str, code: str) -> dict:
