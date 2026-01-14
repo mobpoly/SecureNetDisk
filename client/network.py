@@ -114,6 +114,8 @@ class NetworkClient:
         """
         if not self._auth_cache:
             return False
+        if self._auth_cache_expiry == 0:
+            return False
         return time.time() < self._auth_cache_expiry
     
     def clear_auth_cache(self):
