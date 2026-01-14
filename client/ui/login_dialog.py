@@ -4,6 +4,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QTabWidget, QWidget, QMessageBox, QStackedWidget,
     QGroupBox, QFormLayout, QComboBox
 )
+from PyQt6.QtGui import QIcon, QPixmap
+from pathlib import Path
 from .styles import StyleSheet
 from client.config import config as app_config
 
@@ -31,10 +33,24 @@ class LoginDialog(QDialog):
         layout.setContentsMargins(40, 40, 40, 40)
         layout.setSpacing(16)
         
-        logo = QLabel("🔐 安全网盘")
-        logo.setObjectName("logoLabel")
-        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(logo)
+        # Logo 图标
+        logo_layout = QHBoxLayout()
+        logo_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        icon_path = Path(__file__).parent.parent / "resources" / "icon.png"
+        if icon_path.exists():
+            # 设置窗口图标
+            self.setWindowIcon(QIcon(str(icon_path)))
+            # Logo 图片
+            logo_pixmap = QPixmap(str(icon_path)).scaled(48, 48, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            logo_icon = QLabel()
+            logo_icon.setPixmap(logo_pixmap)
+            logo_layout.addWidget(logo_icon)
+        
+        logo_text = QLabel("安全网盘")
+        logo_text.setObjectName("logoLabel")
+        logo_layout.addWidget(logo_text)
+        layout.addLayout(logo_layout)
         
         # 连接状态标签
         self.connection_status = QLabel("⚪ 正在连接服务器...")

@@ -244,6 +244,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("安全网盘")
         self.setMinimumSize(1200, 800)
         self.setStyleSheet(StyleSheet.MAIN)
+        
+        # 设置窗口图标
+        icon_path = Path(__file__).parent.parent / "resources" / "icon.png"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
 
         # 群组文件未读计数 (group_id -> count)
         self.group_file_counts = {}
