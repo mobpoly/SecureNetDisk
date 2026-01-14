@@ -34,6 +34,7 @@ class NetworkClient:
         self.sock: Optional[socket.socket] = None
         self.channel: Optional[SecureChannel] = None
         self._connected = False
+        self._auth_cache = {}  # 缓存登录凭据用于静默重连
     
     def connect(self) -> bool:
         """
@@ -86,6 +87,17 @@ class NetworkClient:
         """是否已连接"""
         return self._connected and self.channel and not self.channel.is_closed
     
+    def ping(self) -> bool:
+        """测试连接实质连通性"""
+        if not self.is_connected:
+            return False
+        try:
+            result = self.send_request(PacketType.HEARTBEAT, {}, timeout=5)
+            return result is not None and result.get('success', False)
+        except:
+            self._connected = False
+            return False
+
     def send_request(self, packet_type: PacketType, 
                      data: dict, timeout: float = 30) -> Optional[dict]:
         """
@@ -173,11 +185,18 @@ class NetworkClient:
     
     def login_password(self, username: str, password: str) -> dict:
         """密码登录"""
-        return self.send_request(PacketType.AUTH_REQUEST, {
+        result = self.send_request(PacketType.AUTH_REQUEST, {
             'login_type': 'password',
             'username': username,
-            'password': password  # 发送原始密码，服务端用 bcrypt 验证
+            'password': password  # 发送预哈希后的密码
         })
+        if result.get('success'):
+            self._auth_cache = {
+                'login_type': 'password',
+                'username': username,
+                'password': password
+            }
+        return result
     
     def login_email(self, email: str, code: str) -> dict:
         """Email 验证码登录"""

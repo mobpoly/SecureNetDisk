@@ -177,11 +177,14 @@ class LoginDialog(QDialog):
             QMessageBox.warning(self, "配置错误", "端口必须是数字")
             return False
 
-        # 如果已经连接且配置没变，直接返回True
+        # 如果已经连接、配置没变，且 Ping 成功，直接返回 True
         if (self.network.is_connected and 
             self.network.server_info.host == host and 
             self.network.server_info.port == port):
-            return True
+            if self.network.ping():
+                return True
+            else:
+                self.network.disconnect()
 
         # 更新配置并重连
         self._update_status(False, "正在重新连接...")
