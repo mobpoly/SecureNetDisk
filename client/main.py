@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon
 
 from client.network import NetworkClient, ServerInfo
 from client.key_manager import KeyManager
@@ -27,6 +28,11 @@ class Application:
         self.app = QApplication(sys.argv)
         self.app.setApplicationName("安全网盘")
         self.app.setStyle("Fusion")
+        
+        # 设置应用图标
+        icon_path = Path(__file__).parent / "resources" / "icon.png"
+        if icon_path.exists():
+            self.app.setWindowIcon(QIcon(str(icon_path)))
         
         # 加载配置
         app_config.load()

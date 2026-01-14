@@ -10,6 +10,8 @@ import time
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.header import Header
+from email.utils import formataddr
 from typing import Dict, Optional, Tuple
 from dataclasses import dataclass
 from threading import Lock
@@ -193,17 +195,35 @@ class EmailService:
         """发送邮件"""
         msg = MIMEMultipart('alternative')
         msg['Subject'] = subject
-        msg['From'] = f"{self.sender_name} <{self.sender_email}>"
+        msg['From'] = formataddr((str(Header(self.sender_name, 'utf-8')), self.sender_email))
         msg['To'] = to_email
         
         # HTML 内容
         html_part = MIMEText(body, 'html', 'utf-8')
         msg.attach(html_part)
         
-        with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-            server.starttls()
-            server.login(self.smtp_user, self.smtp_password)
-            server.send_message(msg)
+        # 根据端口选择连接方式
+        # SSL端口: 465(QQ/网易), 994(网易)
+        # TLS端口: 587
+        if self.smtp_port in (465, 994):
+            # SSL 模式 (端口 465, 994)
+            server = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=30)
+            try:
+                server.login(self.smtp_user, self.smtp_password)
+                server.send_message(msg)
+            finally:
+                server.quit()
+        else:
+            # TLS 模式 (端口 587)
+            server = smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=30)
+            try:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(self.smtp_user, self.smtp_password)
+                server.send_message(msg)
+            finally:
+                server.quit()
     
     def _create_code_email_body(self, code: str, purpose: str) -> str:
         """创建验证码邮件内容"""

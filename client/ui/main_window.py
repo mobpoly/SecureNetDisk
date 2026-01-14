@@ -244,6 +244,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("安全网盘")
         self.setMinimumSize(1200, 800)
         self.setStyleSheet(StyleSheet.MAIN)
+        
+        # 设置窗口图标
+        icon_path = Path(__file__).parent.parent / "resources" / "icon.png"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
 
         # 群组文件未读计数 (group_id -> count)
         self.group_file_counts = {}
@@ -283,10 +288,64 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(content, 1)
 
         # 状态栏
-        self.statusBar().showMessage("就绪")
+        status_bar = self.statusBar()
+        
+        # 创建底部连接状态组件（最左侧）
+        self.conn_widget = QWidget()
+        conn_layout = QHBoxLayout(self.conn_widget)
+        conn_layout.setContentsMargins(12, 0, 12, 0)
+        conn_layout.setSpacing(10)
+        
+        self.conn_status_label = QLabel("● 正在初始化...")
+        self.conn_status_label.setStyleSheet("color: #5f6368; font-size: 11px;")
+        conn_layout.addWidget(self.conn_status_label)
+        
+        self.reconnect_btn = QPushButton("🔄 恢复连接")
+        self.reconnect_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.reconnect_btn.setStyleSheet("""
+            QPushButton {
+                background: #4285f4;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 3px 10px;
+                font-size: 10px;
+                font-weight: 500;
+            }
+            QPushButton:hover { background: #357abd; }
+        """)
+        self.reconnect_btn.clicked.connect(self._do_reconnect)
+        self.reconnect_btn.hide()
+        conn_layout.addWidget(self.reconnect_btn)
+        
+        status_bar.addWidget(self.conn_widget)
+
+        # 添加垂直分割线
+        v_line = QFrame()
+        v_line.setFrameShape(QFrame.Shape.VLine)
+        v_line.setFrameShadow(QFrame.Shadow.Sunken)
+        v_line.setStyleSheet("color: #dadce0; margin: 4px 0;")
+        status_bar.addWidget(v_line)
+
+        # 专门用于显示通用状态信息的标签 (例如 "就绪", "上传中...")
+        self.status_msg_label = QLabel("就绪")
+        self.status_msg_label.setStyleSheet("color: #5f6368; font-size: 11px; padding-left: 5px;")
+        status_bar.addWidget(self.status_msg_label, 1) # 1 为伸缩因子，使其占据剩余空间
 
         # 初始化面包屑
         self._create_breadcrumb()
+
+    def _set_status_msg(self, msg: str, timeout: int = 0):
+        """设置底栏左侧消息信息，防止与连接请求重叠"""
+        self.status_msg_label.setText(msg)
+        if timeout > 0:
+            # 将清理逻辑提取为具名方法，提升可读性
+            QTimer.singleShot(timeout, lambda m=msg: self._clear_status_msg(m))
+
+    def _clear_status_msg(self, msg_to_clear: str):
+        """清除特定的状态消息"""
+        if self.status_msg_label.text() == msg_to_clear:
+            self.status_msg_label.setText("就绪")
 
     def _preview_file(self, file: FileItem):
         """预览文件（仅支持小文件）"""
@@ -306,7 +365,7 @@ class MainWindow(QMainWindow):
 
         try:
             # 显示加载提示
-            self.statusBar().showMessage(f"正在下载并解密 {file.name}...")
+            self._set_status_msg(f"正在下载并解密 {file.name}...")
             QApplication.processEvents()
 
             # 创建临时目录（如果不存在的話）
@@ -363,7 +422,7 @@ class MainWindow(QMainWindow):
                     # 设置清理定时器（30分钟后清理）
                     QTimer.singleShot(30 * 60 * 1000, lambda: self._clean_temp_file(str(temp_path)))
 
-                    self.statusBar().showMessage(f"正在预览 {file.name}")
+                    self._set_status_msg(f"正在预览 {file.name}")
 
                 except subprocess.CalledProcessError as e:
                     # 如果系统命令失败，显示文件路径让用户手动打开
@@ -391,7 +450,7 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             QMessageBox.critical(self, "错误", f"预览失败: {str(e)}")
-            self.statusBar().showMessage("预览失败")
+            self._set_status_msg("预览失败")
 
     def _download_file_to_temp(self, file: FileItem, temp_path: str) -> bool:
         """下载文件到临时路径（无进度对话框）"""
@@ -701,7 +760,7 @@ class MainWindow(QMainWindow):
             self.files = [FileItem(f) for f in result.get('files', [])]
             self._update_file_table()
         else:
-            self.statusBar().showMessage(f"刷新失败: {result.get('error', '未知错误')}")
+            self._set_status_msg(f"刷新失败: {result.get('error', '未知错误')}")
 
     def _update_file_table(self):
         """更新文件表格"""
@@ -978,6 +1037,18 @@ class MainWindow(QMainWindow):
 
     def _refresh_notifications(self):
         """刷新通知徽章"""
+        # 首先检查连通性
+        host = self.network.server_info.host
+        if not self.network.ping():
+            self.conn_status_label.setText(f"● 连接已断开: {host}")
+            self.conn_status_label.setStyleSheet("color: #ea4335; font-size: 11px; font-weight: bold;")
+            self.reconnect_btn.show()
+            return
+
+        self.conn_status_label.setText(f"● 已连接到: {host}")
+        self.conn_status_label.setStyleSheet("color: #34a853; font-size: 11px; font-weight: 500;")
+        self.reconnect_btn.hide()
+
         try:
             result = self.network.get_notification_counts()
             if result.get('success'):
@@ -992,6 +1063,47 @@ class MainWindow(QMainWindow):
                 self.nav_groups.set_badge(file_count)
         except Exception as e:
             print(f"[MainWindow] 刷新通知失败: {e}")
+
+    def _do_reconnect(self):
+        """尝试重连并静默登录"""
+        self._set_status_msg("正在尝试重连服务器...")
+        self.reconnect_btn.setEnabled(False)
+        self.reconnect_btn.setText("正在重连...")
+        QApplication.processEvents()
+
+        if self.network.connect():
+            # 物理连接成功，检查是否有有效的缓存凭据进行静默登录
+            auth_cache = self.network.get_cached_credentials()
+            if auth_cache:
+                self._set_status_msg("正在恢复会话...")
+                login_res = self.network.login_password(
+                    auth_cache['username'], 
+                    auth_cache['password']
+                )
+                if login_res.get('success'):
+                    self._set_status_msg("会话已恢复", 3000)
+                    self._refresh_notifications()
+                    self.reconnect_btn.setEnabled(True)
+                    self.reconnect_btn.setText("🔄 恢复连接")
+                    return
+            
+            # 如果没有缓存、已过期或登录失败，强制登出而不显示确认对话框
+            self._set_status_msg("会话失效，请重新登录")
+            QMessageBox.warning(self, "连接断开", "连接已断开且无法恢复会话，请重新登录。")
+            self._force_logout()
+        else:
+            self._set_status_msg("重连失败，请检查网络设置")
+            self.reconnect_btn.setEnabled(True)
+            self.reconnect_btn.setText("🔄 恢复连接")
+
+    def _force_logout(self):
+        """强制退出登录，不显示确认对话框"""
+        # 清除敏感数据
+        if hasattr(self.network, '_auth_cache'):
+            self.network._auth_cache = {}
+        self.key_manager.lock()
+        self.logout_requested.emit()
+        self.close()
 
     def _nav_my_drive(self):
         """导航到我的云盘"""
@@ -1222,7 +1334,7 @@ class MainWindow(QMainWindow):
             from client.file_crypto import FileCrypto
 
             # 显示加密进度提示
-            self.statusBar().showMessage(f"正在加密 {path.name}...")
+            self._set_status_msg(f"正在加密 {path.name}...")
             QApplication.processEvents()
 
             # 加密文件
@@ -1279,7 +1391,7 @@ class MainWindow(QMainWindow):
                         if progress.is_cancelled():
                             # 通知服务器取消上传
                             self.network.upload_file_cancel(upload_id)
-                            self.statusBar().showMessage("上传已取消")
+                            self._set_status_msg("上传已取消")
                             return
 
                         chunk = f.read(chunk_size)
@@ -1297,7 +1409,7 @@ class MainWindow(QMainWindow):
                         self.network.upload_file_cancel(upload_id)
                         del encrypted_data
                         gc.collect()
-                        self.statusBar().showMessage("上传已取消")
+                        self._set_status_msg("上传已取消")
                         return
 
                     chunk = encrypted_data[i:i+chunk_size]
@@ -1314,7 +1426,7 @@ class MainWindow(QMainWindow):
             if result.get('success'):
                 progress.set_complete()
                 progress.exec()
-                self.statusBar().showMessage("上传成功")
+                self._set_status_msg("上传成功")
                 self._refresh_files()
             else:
                 progress.close()
@@ -1343,7 +1455,7 @@ class MainWindow(QMainWindow):
             from pathlib import Path
 
             # 显示下载状态
-            self.statusBar().showMessage(f"正在下载 {file.name}...")
+            self._set_status_msg(f"正在下载 {file.name}...")
             QApplication.processEvents()
 
             # 开始下载 - 获取元数据
@@ -1374,7 +1486,7 @@ class MainWindow(QMainWindow):
                 with open(temp_path, 'wb') as temp_file:
                     while True:
                         if progress.is_cancelled():
-                            self.statusBar().showMessage("下载已取消")
+                            self._set_status_msg("下载已取消")
                             return
 
                         # 请求下一块数据
@@ -1418,7 +1530,7 @@ class MainWindow(QMainWindow):
 
                 progress.set_complete()
                 progress.exec()
-                self.statusBar().showMessage("下载成功")
+                self._set_status_msg("下载成功")
 
             finally:
                 # 清理临时文件
@@ -1691,6 +1803,9 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
+            # 清除凭据缓存
+            if hasattr(self.network, '_auth_cache'):
+                self.network._auth_cache = {}
             # 锁定密钥
             self.key_manager.lock()
             # 发出退出信号
