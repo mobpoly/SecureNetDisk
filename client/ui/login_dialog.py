@@ -146,23 +146,6 @@ class LoginDialog(QDialog):
         content_layout = QVBoxLayout()
         content_layout.setContentsMargins(40, 0, 40, 20)  # 左右边距40px，底部边距20px
         content_layout.setSpacing(16)
-
-        logo = QLabel("🔐 安全网盘")
-        logo.setObjectName("logoLabel")
-        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo.setStyleSheet("""
-            QLabel {
-                font-size: 28px;
-                font-weight: bold;
-                color: black;
-                text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-            }
-        """)
-        content_layout.addWidget(logo)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(16)
         
         # Logo 图标
         logo_layout = QHBoxLayout()
@@ -176,12 +159,13 @@ class LoginDialog(QDialog):
             logo_pixmap = QPixmap(str(icon_path)).scaled(48, 48, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
             logo_icon = QLabel()
             logo_icon.setPixmap(logo_pixmap)
-            logo_layout.addWidget(logo_icon)
+            content_layout.addWidget(logo_icon)
         
-        logo_text = QLabel("安全网盘")
-        logo_text.setObjectName("logoLabel")
-        logo_layout.addWidget(logo_text)
-        layout.addLayout(logo_layout)
+        logo = QLabel("安全网盘")
+        logo.setObjectName("logoLabel")
+        
+        content_layout.addWidget(logo)
+        
         
         # 连接状态标签
         self.connection_status = QLabel("⚪ 正在连接服务器...")
