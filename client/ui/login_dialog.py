@@ -183,8 +183,8 @@ class LoginDialog(QDialog):
             self.network.server_info.port == port):
             if self.network.ping():
                 return True
-            else:
-                self.network.disconnect()
+        
+        self.network.disconnect()
 
         # 更新配置并重连
         self._update_status(False, "正在重新连接...")

@@ -334,9 +334,9 @@ class MainWindow(QMainWindow):
         """设置底栏左侧消息信息，防止与连接请求重叠"""
         self.status_msg_label.setText(msg)
         if timeout > 0:
-            # 记录当前设置的消息，防止超时后清除新的消息
-            QTimer.singleShot(timeout, lambda: self.status_msg_label.setText("就绪") 
-                             if self.status_msg_label.text() == msg else None)
+            # 使用默认参数捕获当前消息内容，解决延迟绑定问题
+            QTimer.singleShot(timeout, lambda m=msg: self.status_msg_label.setText("就绪") 
+                             if self.status_msg_label.text() == m else None)
 
     def _preview_file(self, file: FileItem):
         """预览文件（仅支持小文件）"""
@@ -1063,9 +1063,9 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
 
         if self.network.connect():
-            # 物理连接成功，检查是否有缓存的凭据进行静默登录
-            auth_cache = getattr(self.network, '_auth_cache', {})
-            if auth_cache and auth_cache.get('login_type') == 'password':
+            # 物理连接成功，检查是否有有效的缓存凭据进行静默登录
+            auth_cache = self.network.get_cached_credentials()
+            if auth_cache:
                 self._set_status_msg("正在恢复会话...")
                 login_res = self.network.login_password(
                     auth_cache['username'], 
@@ -1078,14 +1078,23 @@ class MainWindow(QMainWindow):
                     self.reconnect_btn.setText("🔄 恢复连接")
                     return
             
-            # 如果没有缓存或登录失败，强制登出
+            # 如果没有缓存、已过期或登录失败，强制登出而不显示确认对话框
             self._set_status_msg("会话失效，请重新登录")
             QMessageBox.warning(self, "连接断开", "连接已断开且无法恢复会话，请重新登录。")
-            self._do_logout()
+            self._force_logout()
         else:
             self._set_status_msg("重连失败，请检查网络设置")
             self.reconnect_btn.setEnabled(True)
             self.reconnect_btn.setText("🔄 恢复连接")
+
+    def _force_logout(self):
+        """强制退出登录，不显示确认对话框"""
+        # 清除敏感数据
+        if hasattr(self.network, '_auth_cache'):
+            self.network._auth_cache = {}
+        self.key_manager.lock()
+        self.logout_requested.emit()
+        self.close()
 
     def _nav_my_drive(self):
         """导航到我的云盘"""
@@ -1785,10 +1794,14 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
+            # 清除凭据缓存
+            if hasattr(self.network, '_auth_cache'):
+                self.network._auth_cache = {}
             # 锁定密钥
             self.key_manager.lock()
             # 发出退出信号
             self.logout_requested.emit()
+            self.close()
             # 关闭当前窗口
             self.close()
 

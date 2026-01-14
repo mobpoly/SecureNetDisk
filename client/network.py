@@ -5,6 +5,7 @@
 
 import json
 import socket
+import time
 from typing import Optional, Tuple, Callable
 from dataclasses import dataclass
 
@@ -94,7 +95,7 @@ class NetworkClient:
         try:
             result = self.send_request(PacketType.HEARTBEAT, {}, timeout=5)
             return result is not None and result.get('success', False)
-        except:
+        except (socket.error, Exception):
             self._connected = False
             return False
 
@@ -194,9 +195,22 @@ class NetworkClient:
             self._auth_cache = {
                 'login_type': 'password',
                 'username': username,
-                'password': password
+                'password': password,
+                'timestamp': time.time()
             }
         return result
+
+    def get_cached_credentials(self, max_age: int = 1800) -> Optional[dict]:
+        """获取有效的缓存凭据 (默认30分钟有效期)"""
+        if not self._auth_cache:
+            return None
+        
+        # 检查是否过期
+        if time.time() - self._auth_cache.get('timestamp', 0) > max_age:
+            self._auth_cache = {}
+            return None
+            
+        return self._auth_cache
     
     def login_email(self, email: str, code: str) -> dict:
         """Email 验证码登录"""
