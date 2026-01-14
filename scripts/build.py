@@ -27,10 +27,10 @@ def build_app(name, entry_point, is_gui=True, icon_path=None):
     # 添加项目根目录到导入路径
     cmd.append(f"--paths={os.getcwd()}")
     
-    # 添加资源文件
+    # 添加资源文件（使用 os.pathsep 区分不同平台的分隔符）
     resources_dir = os.path.join(os.getcwd(), "client", "resources")
     if os.path.exists(resources_dir):
-        cmd.append(f"--add-data={resources_dir};client/resources")
+        cmd.append(f"--add-data={resources_dir}{os.pathsep}client/resources")
     
     # 入口点
     cmd.append(entry_point)
