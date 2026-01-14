@@ -203,9 +203,10 @@ class EmailService:
         msg.attach(html_part)
         
         # 根据端口选择连接方式
-        # QQ邮箱: 465=SSL, 587=TLS
-        if self.smtp_port == 465:
-            # SSL 模式 (端口 465) - QQ邮箱推荐
+        # SSL端口: 465(QQ/网易), 994(网易)
+        # TLS端口: 587
+        if self.smtp_port in (465, 994):
+            # SSL 模式 (端口 465, 994)
             server = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=30)
             try:
                 server.login(self.smtp_user, self.smtp_password)
