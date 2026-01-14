@@ -512,12 +512,14 @@ class MainWindow(QMainWindow):
 
         # 导航按钮
         self.nav_my_drive = QPushButton(f"{Icons.HOME} 我的云盘")
+        self.nav_my_drive.setObjectName("navMyDrive")  # 添加对象名用于特殊样式
         self.nav_my_drive.setCheckable(True)
         self.nav_my_drive.setChecked(True)
         self.nav_my_drive.clicked.connect(self._nav_my_drive)
         layout.addWidget(self.nav_my_drive)
 
         self.nav_groups = BadgeButton(f"{Icons.GROUP} 共享群组")
+        self.nav_groups.setObjectName("navGroups")  # 添加对象名
         self.nav_groups.setCheckable(True)
         self.nav_groups.clicked.connect(self._nav_groups)
         layout.addWidget(self.nav_groups)
@@ -532,38 +534,23 @@ class MainWindow(QMainWindow):
         # 用户信息和退出按钮
         if self.key_manager.user_keys:
             user_label = QLabel(f"👤 {self.key_manager.user_keys.username}")
-            user_label.setStyleSheet("padding: 12px 24px; color: #5f6368;")
+            user_label.setStyleSheet("padding: 12px 24px; color: #ffffff; font-weight: 500;")
             layout.addWidget(user_label)
-
-        # 退出登录按钮
-        logout_btn = QPushButton("🚪 退出登录")
-        logout_btn.setStyleSheet("""
-            QPushButton {
-                background: transparent;
-                color: #d93025;
-                border: none;
-                padding: 12px 24px;
-                text-align: left;
-            }
-            QPushButton:hover {
-                background: #fce8e6;
-            }
-        """)
-        logout_btn.clicked.connect(self._do_logout)
-        layout.addWidget(logout_btn)
 
         # 修改密码按钮
         change_pwd_btn = QPushButton("🔑 修改密码")
         change_pwd_btn.setStyleSheet("""
             QPushButton {
                 background: transparent;
-                color: #1a73e8;
+                color: #ffffff;
                 border: none;
                 padding: 12px 24px;
                 text-align: left;
+                opacity: 0.9;
             }
             QPushButton:hover {
-                background: #e8f0fe;
+                background: rgba(255, 255, 255, 0.1);
+                opacity: 1;
             }
         """)
         change_pwd_btn.clicked.connect(self._change_password)
@@ -574,17 +561,38 @@ class MainWindow(QMainWindow):
         self.revoke_trust_btn.setStyleSheet("""
             QPushButton {
                 background: transparent;
-                color: #f57c00;
+                color: #ffffff;
                 border: none;
                 padding: 12px 24px;
                 text-align: left;
+                opacity: 0.9;
             }
             QPushButton:hover {
-                background: #fff3e0;
+                background: rgba(255, 255, 255, 0.1);
+                opacity: 1;
             }
         """)
         self.revoke_trust_btn.clicked.connect(self._revoke_device_trust)
         layout.addWidget(self.revoke_trust_btn)
+
+        # 退出登录按钮
+        logout_btn = QPushButton("🚪 退出登录")
+        logout_btn.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                color: #ffffff;
+                border: none;
+                padding: 12px 24px;
+                text-align: left;
+                opacity: 0.9;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.1);
+                opacity: 1;
+            }
+        """)
+        logout_btn.clicked.connect(self._do_logout)
+        layout.addWidget(logout_btn)
 
         return sidebar
 
@@ -601,6 +609,7 @@ class MainWindow(QMainWindow):
 
         # 面包屑导航
         breadcrumb_container = QWidget()
+        breadcrumb_container.setObjectName("breadcrumb")
         self.breadcrumb_layout = QHBoxLayout(breadcrumb_container)
         self.breadcrumb_layout.setContentsMargins(0, 8, 0, 8)
         self.breadcrumb_layout.setSpacing(4)
@@ -681,24 +690,24 @@ class MainWindow(QMainWindow):
         menu.addAction(f"{Icons.DELETE} 删除", lambda: self._delete_file(file))
 
         menu.exec(self.file_table.viewport().mapToGlobal(pos))
-    
+
     def _refresh_files(self):
         """刷新文件列表"""
         # current_path 存储 (id, name) 元组，需要提取 id
         parent_id = self.current_path[-1][0] if self.current_path else None
         result = self.network.get_file_list(parent_id=parent_id, group_id=self.current_group_id)
-        
+
         if result.get('success'):
             self.files = [FileItem(f) for f in result.get('files', [])]
             self._update_file_table()
         else:
             self.statusBar().showMessage(f"刷新失败: {result.get('error', '未知错误')}")
-    
+
     def _update_file_table(self):
         """更新文件表格"""
         # 排序文件列表
         self._sort_files()
-        
+
         # 获取当前排序状态
         if self.current_group_id:
             sort_col = self.group_sort_column
@@ -706,18 +715,18 @@ class MainWindow(QMainWindow):
         else:
             sort_col = self.personal_sort_column
             sort_asc = self.personal_sort_ascending
-        
+
         # 生成排序指示符
         def get_header(label, col):
             if sort_col == col:
                 arrow = "▲" if sort_asc else "▼"
                 return f"{label} {arrow}"
             return label
-        
+
         # 显示垂直表头 (行号)
         self.file_table.verticalHeader().setVisible(True)
         self.file_table.verticalHeader().setDefaultSectionSize(35)
-        
+
         # 根据是否在群组中设置列数
         if self.current_group_id:
             self.file_table.setColumnCount(4)
@@ -748,22 +757,22 @@ class MainWindow(QMainWindow):
             self.file_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
             self.file_table.setColumnWidth(1, 100)
             self.file_table.setColumnWidth(2, 160)
-        
+
         # 连接表头点击信号 (先断开再连接，防止重复连接)
         try:
             self.file_table.horizontalHeader().sectionClicked.disconnect(self._on_header_clicked)
         except:
             pass
         self.file_table.horizontalHeader().sectionClicked.connect(self._on_header_clicked)
-        
+
         self.file_table.setRowCount(len(self.files))
-        
+
         for i, file in enumerate(self.files):
             icon = Icons.FOLDER if file.is_folder else Icons.get_file_icon(file.name)
             name_item = QTableWidgetItem(f"{icon}  {file.name}")
             size_item = QTableWidgetItem(self._format_size(file.size) if not file.is_folder else "-")
             time_item = QTableWidgetItem(file.created_at[:16] if file.created_at else "-")
-            
+
             if self.current_group_id:
                 uploader_item = QTableWidgetItem(f"👤 {file.uploader_name}" if file.uploader_name else "-")
                 uploader_item.setForeground(Qt.GlobalColor.darkGray)
@@ -775,7 +784,7 @@ class MainWindow(QMainWindow):
                 self.file_table.setItem(i, 0, name_item)
                 self.file_table.setItem(i, 1, size_item)
                 self.file_table.setItem(i, 2, time_item)
-    
+
     def _sort_files(self):
         """排序文件列表"""
         # 获取当前排序状态
@@ -785,11 +794,11 @@ class MainWindow(QMainWindow):
         else:
             sort_col = self.personal_sort_column
             sort_asc = self.personal_sort_ascending
-        
+
         # 文件夹始终在前
         folders = [f for f in self.files if f.is_folder]
         files = [f for f in self.files if not f.is_folder]
-        
+
         # 根据排序列和方向排序
         key_func = {
             'name': lambda x: x.name.lower(),
@@ -797,12 +806,12 @@ class MainWindow(QMainWindow):
             'created_at': lambda x: x.created_at or '',
             'uploader_name': lambda x: (x.uploader_name or '').lower()
         }.get(sort_col, lambda x: x.created_at or '')
-        
+
         folders.sort(key=key_func, reverse=not sort_asc)
         files.sort(key=key_func, reverse=not sort_asc)
-        
+
         self.files = folders + files
-    
+
     def _on_header_clicked(self, logical_index: int):
         """处理表头点击排序"""
         # 映射列索引到排序字段
@@ -826,7 +835,7 @@ class MainWindow(QMainWindow):
                     self.personal_sort_column = col
                     self.personal_sort_ascending = False
                 self._update_file_table()
-    
+
     def _format_size(self, size: int) -> str:
         """格式化文件大小"""
         for unit in ['B', 'KB', 'MB', 'GB']:
@@ -834,7 +843,7 @@ class MainWindow(QMainWindow):
                 return f"{size:.1f} {unit}"
             size /= 1024
         return f"{size:.1f} TB"
-    
+
     def _on_item_double_click(self, index):
         """双击进入文件夹"""
         row = index.row()
@@ -845,7 +854,7 @@ class MainWindow(QMainWindow):
                 self.current_path.append((file.id, file.name))
                 self._create_breadcrumb()
                 self._refresh_files()
-    
+
     def _create_breadcrumb(self):
         """创建面包屑导航"""
         # 清空现有的面包屑
@@ -966,7 +975,7 @@ class MainWindow(QMainWindow):
         self.current_path = self.current_path[:index + 1]
         self._create_breadcrumb()
         self._refresh_files()
-    
+
     def _refresh_notifications(self):
         """刷新通知徽章"""
         try:
@@ -977,13 +986,13 @@ class MainWindow(QMainWindow):
                 # JSON 返回的 key 是字符串，需要转换为整数
                 raw_counts = result.get('group_file_counts', {})
                 self.group_file_counts = {int(k): v for k, v in raw_counts.items()}
-                
+
                 # 更新徽章
                 self.nav_invitations.set_badge(invitation_count)
                 self.nav_groups.set_badge(file_count)
         except Exception as e:
             print(f"[MainWindow] 刷新通知失败: {e}")
-    
+
     def _nav_my_drive(self):
         """导航到我的云盘"""
         self.nav_my_drive.setChecked(True)
@@ -992,46 +1001,46 @@ class MainWindow(QMainWindow):
         self.current_path = []
         self._create_breadcrumb()
         self._refresh_files()
-    
+
     def _nav_groups(self):
         """导航到群组"""
         self.nav_my_drive.setChecked(False)
         self.nav_groups.setChecked(True)
         # 显示群组选择
         self._show_group_selector()
-    
+
     def _show_group_selector(self):
         """显示群组选择器"""
         # 刷新通知确保徽章是最新的
         self._refresh_notifications()
-        
+
         result = self.network.get_groups()
         if not result.get('success'):
             QMessageBox.warning(self, "错误", result.get('error', '获取群组失败'))
             return
-        
+
         groups = result.get('groups', [])
         if not groups:
             QMessageBox.information(self, "提示", "您还没有加入任何群组")
             return
-        
+
         # 创建群组选择对话框
         dialog = QDialog(self)
         dialog.setWindowTitle("选择群组")
         dialog.setMinimumSize(700, 500)
-        
+
         layout = QHBoxLayout(dialog)
         layout.setSpacing(16)
-        
+
         # 左侧：群组列表
         left_panel = QFrame()
         left_panel.setStyleSheet("""
             QFrame { background: #f8f9fa; border-radius: 8px; }
         """)
         left_layout = QVBoxLayout(left_panel)
-        
+
         left_layout.addWidget(QLabel("📂 我的群组"))
-        
+
         group_list = QListWidget()
         group_list.setStyleSheet("""
             QListWidget { 
@@ -1047,50 +1056,50 @@ class MainWindow(QMainWindow):
             QListWidget::item:hover { background: #e8eaed; }
             QListWidget::item:selected { background: #e8f0fe; color: #1a73e8; }
         """)
-        
+
         for g in groups:
             group_id = g['id']
             unread_count = self.group_file_counts.get(group_id, 0)
-            
+
             # 显示未读徽章
             if unread_count > 0:
                 badge = f" 🔴 {unread_count}" if unread_count <= 99 else " 🔴 99+"
                 item = QListWidgetItem(f"👥 {g['name']}{badge}")
             else:
                 item = QListWidgetItem(f"👥 {g['name']}")
-            
+
             item.setData(Qt.ItemDataRole.UserRole, g)
             group_list.addItem(item)
-        
+
         left_layout.addWidget(group_list)
         layout.addWidget(left_panel, 1)
-        
+
         # 右侧：成员列表
         right_panel = QFrame()
         right_panel.setStyleSheet("""
             QFrame { background: #ffffff; border: 1px solid #dadce0; border-radius: 8px; }
         """)
         right_layout = QVBoxLayout(right_panel)
-        
+
         member_title = QLabel("👤 群组成员")
         member_title.setStyleSheet("font-size: 16px; font-weight: 500; padding: 8px;")
         right_layout.addWidget(member_title)
-        
+
         member_list = QListWidget()
         member_list.setStyleSheet("""
             QListWidget { border: none; }
             QListWidget::item { padding: 10px 16px; border-bottom: 1px solid #e8eaed; }
         """)
         right_layout.addWidget(member_list)
-        
+
         # 群组信息
         group_info = QLabel("")
         group_info.setStyleSheet("color: #666; font-size: 12px; padding: 8px;")
         group_info.setWordWrap(True)
         right_layout.addWidget(group_info)
-        
+
         layout.addWidget(right_panel, 1)
-        
+
         # 选择群组时更新成员列表
         def update_members():
             current = group_list.currentItem()
@@ -1098,11 +1107,11 @@ class MainWindow(QMainWindow):
                 return
             group = current.data(Qt.ItemDataRole.UserRole)
             group_id = group['id']
-            
+
             # 获取成员
             members_result = self.network.get_group_members(group_id)
             member_list.clear()
-            
+
             if members_result.get('success'):
                 members = members_result.get('members', [])
                 for m in members:
@@ -1110,57 +1119,57 @@ class MainWindow(QMainWindow):
                     username = m.get('username') or m.get('name') or m.get('user_name') or f"用户{m.get('id', '?')}"
                     is_owner = m.get('role') == 'owner'
                     role_text = "组长" if is_owner else "成员"
-                    
+
                     if is_owner:
                         text = f"👑 {username} ({role_text})"
                     else:
                         text = f"👤 {username} ({role_text})"
-                    
+
                     item = QListWidgetItem(text)
                     if is_owner:
                         item.setBackground(Qt.GlobalColor.yellow)
                     if m.get('email'):
                         item.setToolTip(f"邮箱: {m.get('email')}")
                     member_list.addItem(item)
-                
+
                 group_info.setText(f"群组: {group['name']}\n成员数: {len(members)}")
             else:
                 group_info.setText("无法获取成员信息")
-        
+
         group_list.currentItemChanged.connect(lambda: update_members())
-        
+
         # 底部按钮
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-        
+
         cancel_btn = QPushButton("取消")
         cancel_btn.clicked.connect(dialog.reject)
         btn_layout.addWidget(cancel_btn)
-        
+
         # 邀请按钮
         def invite_to_selected_group():
             current = group_list.currentItem()
             if current:
                 group = current.data(Qt.ItemDataRole.UserRole)
                 self._invite_to_group(group['id'], group['name'])
-        
+
         invite_btn = QPushButton("📨 邀请用户")
         invite_btn.setStyleSheet("background: #34a853; color: white; padding: 8px 16px; border-radius: 4px;")
         invite_btn.clicked.connect(invite_to_selected_group)
         btn_layout.addWidget(invite_btn)
-        
+
         select_btn = QPushButton("进入群组")
         select_btn.setStyleSheet("background: #1a73e8; color: white; padding: 8px 24px; border-radius: 4px;")
         select_btn.clicked.connect(dialog.accept)
         btn_layout.addWidget(select_btn)
-        
+
         # 将按钮添加到右侧面板底部
         right_layout.addLayout(btn_layout)
-        
+
         # 默认选中第一个
         if group_list.count() > 0:
             group_list.setCurrentRow(0)
-        
+
         if dialog.exec() == QDialog.DialogCode.Accepted:
             current = group_list.currentItem()
             if current:
@@ -1168,16 +1177,16 @@ class MainWindow(QMainWindow):
                 self.current_group_id = group['id']
                 self.current_path = []
                 self._create_breadcrumb()
-                
+
                 # 加载群组密钥
                 self._load_group_key(group['id'])
-                
+
                 # 标记该群组的新文件通知为已读
                 self.network.mark_notification_read('new_file', group['id'])
                 self._refresh_notifications()
-                
+
                 self._refresh_files()
-    
+
     def _load_group_key(self, group_id: int):
         """加载群组密钥"""
         try:
@@ -1196,31 +1205,31 @@ class MainWindow(QMainWindow):
                 print(f"[MainWindow] 获取群组密钥失败: {result.get('error')}")
         except Exception as e:
             print(f"[MainWindow] 加载群组密钥失败: {e}")
-    
+
     def _upload_file(self):
         """上传文件"""
         file_path, _ = QFileDialog.getOpenFileName(self, "选择文件")
         if not file_path:
             return
-        
+
         path = Path(file_path)
         file_size = path.stat().st_size
         temp_file_path = None
-        
+
         try:
             import gc
             import os
             from client.file_crypto import FileCrypto
-            
+
             # 显示加密进度提示
             self.statusBar().showMessage(f"正在加密 {path.name}...")
             QApplication.processEvents()
-            
+
             # 加密文件
             file_key = FileCrypto.generate_file_key()
             encrypted_result, _ = FileCrypto.encrypt_file(path, file_key)
             gc.collect()
-            
+
             # 判断返回的是字节数据还是临时文件路径
             if isinstance(encrypted_result, str):
                 # 大文件：返回的是临时文件路径
@@ -1232,11 +1241,11 @@ class MainWindow(QMainWindow):
                 encrypted_data = encrypted_result
                 total_size = len(encrypted_data)
                 use_temp_file = False
-            
+
             # 创建进度对话框
             progress = ProgressDialog("上传文件", path.name, total_size, self)
             progress.show()
-            
+
             # 根据是否是群组文件选择加密方式
             if self.current_group_id:
                 encrypted_file_key = self.key_manager.encrypt_with_group_key(
@@ -1244,7 +1253,7 @@ class MainWindow(QMainWindow):
                 )
             else:
                 encrypted_file_key = self.key_manager.encrypt_file_key(file_key)
-            
+
             # 开始上传
             result = self.network.upload_file_start(
                 filename=path.name,
@@ -1253,16 +1262,16 @@ class MainWindow(QMainWindow):
                 parent_id=self.current_path[-1][0] if self.current_path else None,
                 group_id=self.current_group_id
             )
-            
+
             if not result.get('success'):
                 progress.close()
                 QMessageBox.critical(self, "错误", result.get('error', '上传失败'))
                 return
-            
+
             upload_id = result['upload_id']
             chunk_size = 256 * 1024  # 256KB chunks
             uploaded = 0
-            
+
             if use_temp_file:
                 # 大文件：从临时文件流式读取上传
                 with open(temp_file_path, 'rb') as f:
@@ -1272,11 +1281,11 @@ class MainWindow(QMainWindow):
                             self.network.upload_file_cancel(upload_id)
                             self.statusBar().showMessage("上传已取消")
                             return
-                        
+
                         chunk = f.read(chunk_size)
                         if not chunk:
                             break
-                        
+
                         self.network.upload_file_data(upload_id, chunk)
                         uploaded += len(chunk)
                         progress.update_progress(uploaded)
@@ -1290,18 +1299,18 @@ class MainWindow(QMainWindow):
                         gc.collect()
                         self.statusBar().showMessage("上传已取消")
                         return
-                    
+
                     chunk = encrypted_data[i:i+chunk_size]
                     self.network.upload_file_data(upload_id, chunk)
                     uploaded += len(chunk)
                     progress.update_progress(uploaded)
-                
+
                 del encrypted_data
                 gc.collect()
-            
+
             # 结束上传
             result = self.network.upload_file_end(upload_id)
-            
+
             if result.get('success'):
                 progress.set_complete()
                 progress.exec()
@@ -1310,7 +1319,7 @@ class MainWindow(QMainWindow):
             else:
                 progress.close()
                 QMessageBox.critical(self, "错误", result.get('error', '上传失败'))
-                
+
         except Exception as e:
             QMessageBox.critical(self, "错误", str(e))
         finally:
@@ -1320,97 +1329,97 @@ class MainWindow(QMainWindow):
                     os.unlink(temp_file_path)
                 except:
                     pass
-    
+
     def _download_file(self, file: FileItem):
         """下载文件 (流式下载)"""
         save_path, _ = QFileDialog.getSaveFileName(self, "保存文件", file.name)
         if not save_path:
             return
-        
+
         try:
             import gc
             import base64
             import tempfile
             from pathlib import Path
-            
+
             # 显示下载状态
             self.statusBar().showMessage(f"正在下载 {file.name}...")
             QApplication.processEvents()
-            
+
             # 开始下载 - 获取元数据
             result = self.network.download_file_start(file.id)
-            
+
             if not result.get('success'):
                 QMessageBox.critical(self, "错误", result.get('error', '下载失败'))
                 return
-            
+
             download_id = result['download_id']
             total_size = result['size']
             encrypted_file_key = bytes.fromhex(result['encrypted_file_key'])
-            
+
             del result
             gc.collect()
-            
+
             # 创建进度对话框
             progress = ProgressDialog("下载文件", file.name, total_size, self)
             progress.show()
-            
+
             # 创建临时文件接收数据
             temp_fd, temp_path = tempfile.mkstemp(suffix='.download')
-            
+
             try:
                 downloaded = 0
                 chunk_size = 256 * 1024  # 256KB per chunk
-                
+
                 with open(temp_path, 'wb') as temp_file:
                     while True:
                         if progress.is_cancelled():
                             self.statusBar().showMessage("下载已取消")
                             return
-                        
+
                         # 请求下一块数据
                         chunk_result = self.network.download_file_data(download_id, chunk_size)
-                        
+
                         if not chunk_result.get('success'):
                             progress.close()
                             QMessageBox.critical(self, "错误", chunk_result.get('error', '下载数据失败'))
                             return
-                        
+
                         # 解码并写入文件
                         chunk_data = base64.b64decode(chunk_result['data'])
                         temp_file.write(chunk_data)
-                        
+
                         downloaded += len(chunk_data)
                         progress.update_progress(downloaded)
                         QApplication.processEvents()
-                        
+
                         # 检查是否完成
                         if chunk_result.get('is_complete', False):
                             break
-                        
+
                         del chunk_data
                         del chunk_result
-                
+
                 gc.collect()
-                
+
                 # 解密文件密钥
                 from client.file_crypto import FileCrypto
-                
+
                 if self.current_group_id:
                     file_key = self.key_manager.decrypt_with_group_key(
                         self.current_group_id, encrypted_file_key
                     )
                 else:
                     file_key = self.key_manager.decrypt_file_key(encrypted_file_key)
-                
+
                 # 流式解密：从临时文件直接解密到目标文件，不加载整个文件到内存
                 FileCrypto.decrypt_from_encrypted_file(Path(temp_path), file_key, Path(save_path))
                 gc.collect()
-                
+
                 progress.set_complete()
                 progress.exec()
                 self.statusBar().showMessage("下载成功")
-                
+
             finally:
                 # 清理临时文件
                 try:
@@ -1419,10 +1428,10 @@ class MainWindow(QMainWindow):
                     os.unlink(temp_path)
                 except:
                     pass
-            
+
         except Exception as e:
             QMessageBox.critical(self, "错误", str(e))
-    
+
     def _create_folder(self):
         """创建文件夹"""
         name, ok = QInputDialog.getText(self, "新建文件夹", "文件夹名称:")
@@ -1436,29 +1445,29 @@ class MainWindow(QMainWindow):
                 self._refresh_files()
             else:
                 QMessageBox.critical(self, "错误", result.get('error', '创建失败'))
-    
+
     def _rename_file(self, file: FileItem):
         """重命名文件"""
         from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLineEdit, QDialogButtonBox
-        
+
         dialog = QDialog(self)
         dialog.setWindowTitle("重命名")
         dialog.setMinimumWidth(450)  # 设置最小宽度避免遮挡文件名
-        
+
         layout = QVBoxLayout(dialog)
         layout.addWidget(QLabel("新名称:"))
-        
+
         name_input = QLineEdit(file.name)
         name_input.selectAll()
         layout.addWidget(name_input)
-        
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
-        
+
         if dialog.exec() == QDialog.DialogCode.Accepted:
             name = name_input.text().strip()
             if name and name != file.name:
@@ -1467,7 +1476,7 @@ class MainWindow(QMainWindow):
                     self._refresh_files()
                 else:
                     QMessageBox.critical(self, "错误", result.get('error', '重命名失败'))
-    
+
     def _delete_file(self, file: FileItem):
         """删除文件"""
         reply = QMessageBox.question(
@@ -1480,7 +1489,7 @@ class MainWindow(QMainWindow):
                 self._refresh_files()
             else:
                 QMessageBox.critical(self, "错误", result.get('error', '删除失败'))
-    
+
     def _create_group(self):
         """创建群组"""
         name, ok = QInputDialog.getText(self, "创建群组", "群组名称:")
@@ -1488,12 +1497,12 @@ class MainWindow(QMainWindow):
             try:
                 # 生成群组密钥
                 group_key = self.key_manager.generate_group_key()
-                
+
                 # 使用自己的公钥加密群组密钥 (RSA)
                 encrypted_group_key = self.key_manager.encrypt_for_user(
                     group_key, self.key_manager.user_keys.public_key
                 )
-                
+
                 result = self.network.create_group(name, encrypted_group_key.hex())
                 if result.get('success'):
                     group_id = result.get('group_id')
@@ -1504,7 +1513,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.critical(self, "错误", result.get('error', '创建失败'))
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"创建群组失败: {e}")
-    
+
     def _invite_to_group(self, group_id: int = None, group_name: str = None):
         """邀请用户加入群组"""
         # 如果没有传入 group_id，则需要先选择群组
@@ -1513,91 +1522,91 @@ class MainWindow(QMainWindow):
             if not result.get('success'):
                 QMessageBox.warning(self, "错误", result.get('error', '获取群组失败'))
                 return
-            
+
             groups = result.get('groups', [])
             if not groups:
                 QMessageBox.information(self, "提示", "您还没有创建或加入任何群组")
                 return
-            
+
             names = [g['name'] for g in groups]
             group_name, ok = QInputDialog.getItem(self, "选择群组", "选择要邀请加入的群组:", names, 0, False)
-            
+
             if not ok or not group_name:
                 return
-            
+
             idx = names.index(group_name)
             group = groups[idx]
             group_id = group['id']
-        
+
         # 输入要邀请的用户名
         username, ok = QInputDialog.getText(self, "邀请用户", "请输入要邀请的用户名:")
         if not ok or not username:
             return
-        
+
         try:
             # 获取被邀请用户的公钥
             key_result = self.network.get_user_public_key(username)
             if not key_result.get('success'):
                 QMessageBox.critical(self, "错误", key_result.get('error', '获取用户信息失败'))
                 return
-            
+
             invitee_public_key = bytes.fromhex(key_result['public_key'])
-            
+
             # 获取群组密钥（如果本地没有则从服务器加载）
             group_key = self.key_manager.get_group_key(group_id)
             if not group_key:
                 # 从服务器加载群组密钥
                 self._load_group_key(group_id)
                 group_key = self.key_manager.get_group_key(group_id)
-                
+
             if not group_key:
                 QMessageBox.critical(self, "错误", "无法获取群组密钥")
                 return
-            
+
             # 使用被邀请用户的公钥加密群组密钥
             encrypted_group_key = self.key_manager.encrypt_for_user(
-                group_key, 
+                group_key,
                 invitee_public_key
             )
-            
+
             result = self.network.invite_to_group(
                 group_id=group_id,
                 username=username,
                 encrypted_group_key=encrypted_group_key.hex()
             )
-            
+
             if result.get('success'):
                 QMessageBox.information(self, "成功", f"已向 {username} 发送邀请")
             else:
                 QMessageBox.critical(self, "错误", result.get('error', '邀请失败'))
         except Exception as e:
             QMessageBox.critical(self, "错误", str(e))
-    
+
     def _view_invitations(self):
         """查看待处理的邀请"""
         # 标记邀请通知为已读
         self.network.mark_notification_read('invitation')
         self._refresh_notifications()
-        
+
         result = self.network.get_groups()
         if not result.get('success'):
             QMessageBox.warning(self, "错误", result.get('error', '获取邀请失败'))
             return
-        
+
         invitations = result.get('invitations', [])
         if not invitations:
             QMessageBox.information(self, "提示", "没有待处理的邀请")
             return
-        
+
         # 创建邀请列表对话框
         from PyQt6.QtWidgets import QDialog, QListWidget, QDialogButtonBox
-        
+
         dialog = QDialog(self)
         dialog.setWindowTitle("待处理邀请")
         dialog.setMinimumWidth(400)
-        
+
         layout = QVBoxLayout(dialog)
-        
+
         list_widget = QListWidget()
         for inv in invitations:
             item = QListWidgetItem(
@@ -1605,14 +1614,14 @@ class MainWindow(QMainWindow):
             )
             item.setData(Qt.ItemDataRole.UserRole, inv)
             list_widget.addItem(item)
-        
+
         layout.addWidget(list_widget)
-        
+
         btn_layout = QHBoxLayout()
         accept_btn = QPushButton("✅ 接受")
         reject_btn = QPushButton("❌ 拒绝")
         close_btn = QPushButton("关闭")
-        
+
         def accept_invitation():
             current = list_widget.currentItem()
             if not current:
@@ -1631,14 +1640,14 @@ class MainWindow(QMainWindow):
                         print(f"[MainWindow] 群组密钥已保存: group_id={group_id}")
                 except Exception as e:
                     print(f"[MainWindow] 保存群组密钥失败: {e}")
-                
+
                 QMessageBox.information(dialog, "成功", "已加入群组")
                 list_widget.takeItem(list_widget.row(current))
                 if list_widget.count() == 0:
                     dialog.close()
             else:
                 QMessageBox.warning(dialog, "错误", result.get('error', '操作失败'))
-        
+
         def reject_invitation():
             current = list_widget.currentItem()
             if not current:
@@ -1652,19 +1661,19 @@ class MainWindow(QMainWindow):
                     dialog.close()
             else:
                 QMessageBox.warning(dialog, "错误", result.get('error', '操作失败'))
-        
+
         accept_btn.clicked.connect(accept_invitation)
         reject_btn.clicked.connect(reject_invitation)
         close_btn.clicked.connect(dialog.close)
-        
+
         btn_layout.addWidget(accept_btn)
         btn_layout.addWidget(reject_btn)
         btn_layout.addStretch()
         btn_layout.addWidget(close_btn)
         layout.addLayout(btn_layout)
-        
+
         dialog.exec()
-    
+
     def _show_group_menu(self):
         """显示群组管理菜单"""
         menu = QMenu(self)
@@ -1674,7 +1683,7 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         menu.addAction("🔄 刷新群组", self._nav_groups)
         menu.exec(self.sender().mapToGlobal(self.sender().rect().bottomLeft()))
-    
+
     def _do_logout(self):
         """退出登录"""
         reply = QMessageBox.question(
@@ -1688,36 +1697,36 @@ class MainWindow(QMainWindow):
             self.logout_requested.emit()
             # 关闭当前窗口
             self.close()
-    
+
     def _change_password(self):
         """修改密码"""
         from PyQt6.QtWidgets import QDialog, QFormLayout, QLineEdit
-        
+
         dialog = QDialog(self)
         dialog.setWindowTitle("修改密码")
         dialog.setFixedSize(400, 280)
-        
+
         layout = QVBoxLayout(dialog)
         form = QFormLayout()
-        
+
         old_pwd = QLineEdit()
         old_pwd.setEchoMode(QLineEdit.EchoMode.Password)
         old_pwd.setPlaceholderText("输入当前密码")
         form.addRow("当前密码:", old_pwd)
-        
+
         new_pwd = QLineEdit()
         new_pwd.setEchoMode(QLineEdit.EchoMode.Password)
         new_pwd.setPlaceholderText("输入新密码")
         form.addRow("新密码:", new_pwd)
-        
+
         confirm_pwd = QLineEdit()
         confirm_pwd.setEchoMode(QLineEdit.EchoMode.Password)
         confirm_pwd.setPlaceholderText("确认新密码")
         form.addRow("确认密码:", confirm_pwd)
-        
+
         layout.addLayout(form)
         layout.addSpacing(20)
-        
+
         btn_layout = QHBoxLayout()
         cancel_btn = QPushButton("取消")
         cancel_btn.clicked.connect(dialog.reject)
@@ -1727,41 +1736,41 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(cancel_btn)
         btn_layout.addWidget(confirm_btn)
         layout.addLayout(btn_layout)
-        
+
         def do_change():
             old_password = old_pwd.text()
             new_password = new_pwd.text()
             confirm_password = confirm_pwd.text()
-            
+
             if not old_password or not new_password:
                 QMessageBox.warning(dialog, "提示", "请填写所有字段")
                 return
-            
+
             if new_password != confirm_password:
                 QMessageBox.warning(dialog, "提示", "两次输入的新密码不一致")
                 return
-            
+
             # 验证密码强度
             from auth.password import PasswordManager
             valid, msg = PasswordManager.validate_password(new_password)
             if not valid:
                 QMessageBox.warning(dialog, "提示", msg)
                 return
-            
+
             # 验证旧密码
             password_prehash = PasswordManager.prehash_password(old_password)
             result = self.network.login_password(
                 self.key_manager.user_keys.username, password_prehash
             )
-            
+
             if not result.get('success'):
                 QMessageBox.critical(dialog, "错误", "当前密码错误")
                 return
-            
+
             # 准备新密码数据
             try:
                 reset_data = self.key_manager.prepare_password_reset(new_password)
-                
+
                 # 发送密码修改请求
                 reset_result = self.network.reset_password(
                     username=self.key_manager.user_keys.username,
@@ -1770,14 +1779,14 @@ class MainWindow(QMainWindow):
                     new_encrypted_master_key=reset_data['new_encrypted_master_key'],
                     new_master_key_salt=reset_data['new_master_key_salt']
                 )
-                
+
                 if reset_result.get('success'):
                     # 自动解除设备信任（密码已更改）
                     if self.device_trust and self.key_manager.user_keys:
                         email = self.key_manager.user_keys.email
                         if email:
                             self.device_trust.clear_trust(email)
-                    
+
                     QMessageBox.information(dialog, "成功", "密码修改成功，请使用新密码重新登录")
                     dialog.accept()
                     # 触发退出登录
@@ -1788,42 +1797,42 @@ class MainWindow(QMainWindow):
                     QMessageBox.critical(dialog, "错误", reset_result.get('error', '密码修改失败'))
             except Exception as e:
                 QMessageBox.critical(dialog, "错误", f"密码修改失败: {str(e)}")
-        
+
         confirm_btn.clicked.connect(do_change)
         dialog.exec()
-    
+
     def _revoke_device_trust(self):
         """解除设备信任"""
         from PyQt6.QtWidgets import QDialog, QFormLayout, QLineEdit
-        
+
         if not self.device_trust:
             QMessageBox.warning(self, "提示", "设备信任功能不可用")
             return
-        
+
         email = self.key_manager.user_keys.email if self.key_manager.user_keys else ""
-        
+
         if not self.device_trust.has_trusted_device(email):
             QMessageBox.information(self, "提示", "当前用户未信任此设备")
             return
-        
+
         dialog = QDialog(self)
         dialog.setWindowTitle("解除设备信任")
         dialog.setFixedSize(400, 200)
-        
+
         layout = QVBoxLayout(dialog)
-        
+
         layout.addWidget(QLabel(f"确认解除此设备对账号 {email} 的信任？\n解除后，下次登录需要密码。"))
         layout.addSpacing(10)
-        
+
         form = QFormLayout()
         pwd_input = QLineEdit()
         pwd_input.setEchoMode(QLineEdit.EchoMode.Password)
         pwd_input.setPlaceholderText("输入密码以确认")
         form.addRow("密码验证:", pwd_input)
         layout.addLayout(form)
-        
+
         layout.addSpacing(10)
-        
+
         btn_layout = QHBoxLayout()
         cancel_btn = QPushButton("取消")
         cancel_btn.clicked.connect(dialog.reject)
@@ -1833,28 +1842,28 @@ class MainWindow(QMainWindow):
         btn_layout.addWidget(cancel_btn)
         btn_layout.addWidget(confirm_btn)
         layout.addLayout(btn_layout)
-        
+
         def do_revoke():
             password = pwd_input.text()
             if not password:
                 QMessageBox.warning(dialog, "提示", "请输入密码")
                 return
-            
+
             # 验证密码
             from auth.password import PasswordManager
             password_prehash = PasswordManager.prehash_password(password)
             result = self.network.login_password(
                 self.key_manager.user_keys.username, password_prehash
             )
-            
+
             if not result.get('success'):
                 QMessageBox.critical(dialog, "错误", "密码错误")
                 return
-            
+
             # 解除信任
             self.device_trust.clear_trust(email)
             QMessageBox.information(dialog, "成功", "设备信任已解除")
             dialog.accept()
-        
+
         confirm_btn.clicked.connect(do_revoke)
         dialog.exec()

@@ -1,15 +1,11 @@
-"""
-登录对话框
-支持密码登录、邮箱验证码登录、设备信任
-"""
-
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QTabWidget, QWidget, QMessageBox, QStackedWidget
+    QPushButton, QTabWidget, QWidget, QMessageBox, QStackedWidget,
+    QGroupBox, QFormLayout, QComboBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal
 from .styles import StyleSheet
-
+from client.config import config as app_config
 
 class LoginDialog(QDialog):
     """登录对话框"""
@@ -22,10 +18,13 @@ class LoginDialog(QDialog):
         self.device_trust = device_trust
         self._pending_trust_data = None  # 待确认信任的数据
         self.setWindowTitle("安全网盘 - 登录")
-        self.setMinimumSize(400, 500)
-        self.resize(1000, 950)  # 初始大小
+        self.setMinimumSize(400, 600)
+        self.resize(900, 750)  # 初始大小
         self.setStyleSheet(StyleSheet.LOGIN)
         self._init_ui()
+        
+        # 启动后尝试自动连接
+        QTimer.singleShot(100, self._try_initial_connect)
     
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -36,7 +35,14 @@ class LoginDialog(QDialog):
         logo.setObjectName("logoLabel")
         logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(logo)
-        layout.addSpacing(20)
+        
+        # 连接状态标签
+        self.connection_status = QLabel("⚪ 正在连接服务器...")
+        self.connection_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.connection_status.setStyleSheet("color: #5f6368; font-size: 12px;")
+        layout.addWidget(self.connection_status)
+        
+        layout.addSpacing(10)
         
         self.stack = QStackedWidget()
         self.stack.addWidget(self._create_login_page())      # 0 - 密码登录
@@ -47,7 +53,7 @@ class LoginDialog(QDialog):
         # 页面切换时刷新UI状态
         self.stack.currentChanged.connect(self._on_page_changed)
         layout.addWidget(self.stack)
-    
+
     def _create_login_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -55,8 +61,44 @@ class LoginDialog(QDialog):
         
         layout.addWidget(QLabel("登录您的账号"))
         
+        # --- Server Settings Section ---
+        self.server_settings_group = QGroupBox("服务器设置")
+        self.server_settings_group.setCheckable(True)
+        self.server_settings_group.setChecked(False)
+        server_layout = QFormLayout()
+        
+        self.host_combo = QComboBox()
+        self.host_combo.setEditable(True)
+        self.host_combo.setPlaceholderText("服务器地址 (IP/域名)")
+        
+        # Populate history
+        if app_config.recent_hosts:
+            self.host_combo.addItems(app_config.recent_hosts)
+            self.host_combo.setCurrentText(app_config.recent_hosts[0])
+        else:
+            self.host_combo.setCurrentText(app_config.host)
+            
+        # Connect signal to handle "Host:Port" selection
+        self.host_combo.currentTextChanged.connect(self._on_host_changed)
+        
+        self.port_input = QLineEdit()
+        self.port_input.setPlaceholderText("端口")
+        self.port_input.setText(str(app_config.port))
+        
+        test_conn_btn = QPushButton("测试连接")
+        test_conn_btn.clicked.connect(self._ensure_connection)
+        
+        server_layout.addRow("地址:", self.host_combo)
+        server_layout.addRow("端口:", self.port_input)
+        server_layout.addRow("", test_conn_btn)
+        self.server_settings_group.setLayout(server_layout)
+        layout.addWidget(self.server_settings_group)
+        # -------------------------------
+        
         self.username_input = QLineEdit()
         self.username_input.setPlaceholderText("用户名")
+        if app_config.last_username:
+            self.username_input.setText(app_config.last_username)
         layout.addWidget(self.username_input)
         
         self.password_input = QLineEdit()
@@ -89,7 +131,126 @@ class LoginDialog(QDialog):
         layout.addWidget(reg_btn)
         
         return page
-    
+
+    def _on_host_changed(self, text):
+        """Handle host text change to auto-fill port if format is Host:Port"""
+        if ':' in text:
+            parts = text.split(':')
+            if len(parts) == 2 and parts[1].isdigit():
+                self.port_input.setText(parts[1])
+
+    def _try_initial_connect(self):
+        """启动时尝试静默连接"""
+        host = app_config.host
+        port = app_config.port
+        
+        # 更新 network client 配置
+        self.network.server_info.host = host
+        self.network.server_info.port = port
+        
+        if self.network.connect():
+            self._update_status(True, f"已连接到 {host}:{port}")
+        else:
+            self._update_status(False, f"未能连接到服务器 {host}:{port}")
+
+    def _update_status(self, connected: bool, message: str):
+        """更新连接状态标签"""
+        if connected:
+            self.connection_status.setText(f"🟢 {message}")
+            self.connection_status.setStyleSheet("color: #34a853; font-size: 12px; font-weight: bold;") 
+        else:
+            self.connection_status.setText(f"🔴 {message}")
+            self.connection_status.setStyleSheet("color: #ea4335; font-size: 12px; font-weight: bold;")
+
+    def _ensure_connection(self) -> bool:
+        """确保已连接到配置的服务器"""
+        # Parse host from combo box (remove port if present)
+        raw_host = self.host_combo.currentText().strip()
+        if ':' in raw_host:
+            host = raw_host.split(':')[0]
+        else:
+            host = raw_host
+            
+        try:
+            port = int(self.port_input.text().strip())
+        except ValueError:
+            QMessageBox.warning(self, "配置错误", "端口必须是数字")
+            return False
+
+        # 如果已经连接且配置没变，直接返回True
+        if (self.network.is_connected and 
+            self.network.server_info.host == host and 
+            self.network.server_info.port == port):
+            return True
+
+        # 更新配置并重连
+        self._update_status(False, "正在重新连接...")
+        
+        if self.network.is_connected:
+            self.network.disconnect()
+
+        self.network.server_info.host = host
+        self.network.server_info.port = port
+        
+        if not self.network.connect():
+            self._update_status(False, f"连接失败: {host}:{port}")
+            QMessageBox.critical(self, "连接失败", f"无法连接到服务器 {host}:{port}")
+            return False
+            
+        self._update_status(True, f"已连接到 {host}:{port}")
+        return True
+
+    def _save_connection_config(self):
+        """保存成功的连接配置"""
+        app_config.host = self.network.server_info.host
+        app_config.port = self.network.server_info.port
+        # Add to history
+        app_config.add_to_history(app_config.host, app_config.port)
+        # Update combo box if needed (optional, but good for UX)
+        current_entry = f"{app_config.host}:{app_config.port}"
+        if self.host_combo.findText(current_entry) == -1:
+            self.host_combo.insertItem(0, current_entry)
+        self.host_combo.setCurrentText(current_entry)
+        
+        app_config.save()
+
+    def _do_login(self):
+        if not self._ensure_connection():
+            return
+
+        username = self.username_input.text().strip()
+        password = self.password_input.text()
+        if not username or not password:
+            QMessageBox.warning(self, "提示", "请输入用户名和密码")
+            return
+        
+        # 保存用户名
+        app_config.last_username = username
+        self._save_connection_config() # 保存连接配置（因为连接成功了）
+        
+        # 使用 SHA-256 预哈希密码后再发送（避免明文传输）
+        from auth.password import PasswordManager
+        password_prehash = PasswordManager.prehash_password(password)
+        result = self.network.login_password(username, password_prehash)
+        
+        if result.get('success'):
+            if self.key_manager.unlock_with_password(password, result):
+                email = result.get('email', '')
+                # 检查是否需要询问信任设备（仅当该邮箱未信任时）
+                if self.device_trust and email and not self.device_trust.has_trusted_device(email):
+                    self._pending_trust_data = {
+                        'result': result,
+                        'email': email
+                    }
+                    self._ask_trust_device()
+                else:
+                    self.login_success.emit(result)
+                    self.accept()
+            else:
+                QMessageBox.critical(self, "错误", "密钥解锁失败")
+        else:
+            QMessageBox.critical(self, "错误", result.get('error', '登录失败'))
+
     def _create_email_login_page(self):
         """创建邮箱验证码登录页面"""
         page = QWidget()
@@ -149,7 +310,6 @@ class LoginDialog(QDialog):
         
         layout.addStretch()
         return page
-    
     def _refresh_trust_ui(self):
         """刷新设备信任相关的UI"""
         trusted_emails = []
