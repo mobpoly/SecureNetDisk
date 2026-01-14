@@ -177,11 +177,17 @@ class LoginDialog(QDialog):
             QMessageBox.warning(self, "配置错误", "端口必须是数字")
             return False
 
-        # 如果已经连接且配置没变，直接返回True
-        if (self.network.is_connected and 
-            self.network.server_info.host == host and 
-            self.network.server_info.port == port):
-            return True
+        # 如果当前连接仍然有效且配置未变，直接重用
+        settings_unchanged = (self.network.server_info.host == host and 
+                             self.network.server_info.port == port)
+        
+        if self.network.is_connected and settings_unchanged:
+            if self.network.ping():
+                return True
+        
+        # 仅在必要时断开既有连接（配置变更或实质连通性失败）
+        if self.network.is_connected:
+            self.network.disconnect()
 
         # 更新配置并重连
         self._update_status(False, "正在重新连接...")
@@ -556,6 +562,9 @@ class LoginDialog(QDialog):
     
     def _request_recovery_code(self):
         """请求密码重置验证码"""
+        if not self._ensure_connection():
+            return
+            
         email = self.recovery_email_input.text().strip()
         if not email:
             QMessageBox.warning(self, "提示", "请输入邮箱")
@@ -581,6 +590,9 @@ class LoginDialog(QDialog):
     
     def _request_email_code(self):
         """请求发送验证码"""
+        if not self._ensure_connection():
+            return
+            
         email = self.email_input.text().strip()
         if not email:
             QMessageBox.warning(self, "提示", "请输入邮箱")
@@ -602,6 +614,9 @@ class LoginDialog(QDialog):
     
     def _do_email_login(self):
         """邮箱验证码登录"""
+        if not self._ensure_connection():
+            return
+            
         email = self.email_input.text().strip()
         code = self.email_code_input.text().strip()
         
@@ -655,36 +670,6 @@ class LoginDialog(QDialog):
         else:
             QMessageBox.critical(self, "错误", "密码错误，无法解锁密钥")
     
-    def _do_login(self):
-        username = self.username_input.text().strip()
-        password = self.password_input.text()
-        if not username or not password:
-            QMessageBox.warning(self, "提示", "请输入用户名和密码")
-            return
-        
-        # 使用 SHA-256 预哈希密码后再发送（避免明文传输）
-        from auth.password import PasswordManager
-        password_prehash = PasswordManager.prehash_password(password)
-        result = self.network.login_password(username, password_prehash)
-        
-        if result.get('success'):
-            if self.key_manager.unlock_with_password(password, result):
-                email = result.get('email', '')
-                # 检查是否需要询问信任设备（仅当该邮箱未信任时）
-                if self.device_trust and email and not self.device_trust.has_trusted_device(email):
-                    self._pending_trust_data = {
-                        'result': result,
-                        'email': email
-                    }
-                    self._ask_trust_device()
-                else:
-                    self.login_success.emit(result)
-                    self.accept()
-            else:
-                QMessageBox.critical(self, "错误", "密钥解锁失败")
-        else:
-            QMessageBox.critical(self, "错误", result.get('error', '登录失败'))
-    
     def _ask_trust_device(self):
         """询问是否信任设备"""
         reply = QMessageBox.question(
@@ -715,6 +700,9 @@ class LoginDialog(QDialog):
         self.accept()
     
     def _do_register(self):
+        if not self._ensure_connection():
+            return
+            
         username = self.reg_username.text().strip()
         email = self.reg_email.text().strip()
         password = self.reg_password.text()
@@ -759,6 +747,9 @@ class LoginDialog(QDialog):
     
     def _do_recovery(self):
         """执行密码恢复"""
+        if not self._ensure_connection():
+            return
+            
         new_password = self.new_password_input.text()
         confirm_password = self.confirm_password_input.text()
         

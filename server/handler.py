@@ -90,6 +90,9 @@ class RequestHandler:
             # 通知
             PacketType.NOTIFICATION_COUNT_REQUEST: self._handle_notification_count,
             PacketType.NOTIFICATION_READ_REQUEST: self._handle_notification_read,
+
+            # 系统
+            PacketType.HEARTBEAT: self._handle_heartbeat,
         }
         
         handler = handlers.get(packet_type)
@@ -1236,3 +1239,10 @@ class RequestHandler:
                 'success': False,
                 'error': str(e)
             }).encode()
+
+    def _handle_heartbeat(self, session: Session, payload: bytes) -> Tuple[PacketType, bytes]:
+        """处理心跳请求"""
+        return PacketType.HEARTBEAT, json.dumps({
+            'success': True,
+            'timestamp': datetime.now().isoformat()
+        }).encode()
