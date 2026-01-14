@@ -334,9 +334,13 @@ class MainWindow(QMainWindow):
         """设置底栏左侧消息信息，防止与连接请求重叠"""
         self.status_msg_label.setText(msg)
         if timeout > 0:
-            # 使用默认参数捕获当前消息内容，解决延迟绑定问题
-            QTimer.singleShot(timeout, lambda m=msg: self.status_msg_label.setText("就绪") 
-                             if self.status_msg_label.text() == m else None)
+            # 将清理逻辑提取为具名方法，提升可读性
+            QTimer.singleShot(timeout, lambda m=msg: self._clear_status_msg(m))
+
+    def _clear_status_msg(self, msg_to_clear: str):
+        """清除特定的状态消息"""
+        if self.status_msg_label.text() == msg_to_clear:
+            self.status_msg_label.setText("就绪")
 
     def _preview_file(self, file: FileItem):
         """预览文件（仅支持小文件）"""
@@ -1801,7 +1805,6 @@ class MainWindow(QMainWindow):
             self.key_manager.lock()
             # 发出退出信号
             self.logout_requested.emit()
-            self.close()
             # 关闭当前窗口
             self.close()
 
