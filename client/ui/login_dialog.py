@@ -468,12 +468,23 @@ class LoginDialog(QDialog):
 
         if self.network.connect():
             QMessageBox.information(dialog, "连接成功", f"已连接到服务器 {host}:{port}")
-            # 保持连接状态
+            # 更新登录页面的连接状态
+            self._update_status(True, f"已连接到 {host}:{port}")
+            # 保存成功的连接配置
+            app_config.host = host
+            app_config.port = port
+            app_config.add_to_history(host, port)  # 保存带端口的完整地址
+            app_config.save()
         else:
             QMessageBox.critical(dialog, "连接失败", f"无法连接到服务器 {host}:{port}")
             # 恢复之前的配置
             self.network.server_info.host = old_host
             self.network.server_info.port = old_port
+            # 尝试使用旧配置重新连接
+            if self.network.connect():
+                self._update_status(True, f"已连接到 {old_host}:{old_port}")
+            else:
+                self._update_status(False, f"连接失败: {host}:{port}")
 
     def _apply_settings(self, dialog):
         """应用设置并保存到配置"""
