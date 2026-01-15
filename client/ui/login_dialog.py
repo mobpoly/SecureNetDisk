@@ -113,7 +113,7 @@ class LoginDialog(QDialog):
         self._pending_trust_data = None  # 待确认信任的数据
         self.setWindowTitle("安全网盘 - 登录")
         self.setMinimumSize(400, 600)
-        self.resize(900, 750)  # 初始大小
+        self.resize(900, 835)  # 初始大小
         self.setStyleSheet(StyleSheet.LOGIN)
         self._init_ui()
         
@@ -899,16 +899,40 @@ class LoginDialog(QDialog):
         
         self.recovery_email_username = QLineEdit()
         self.recovery_email_username.setPlaceholderText("用户名")
+        self.recovery_email_username.setStyleSheet("""
+            QLineEdit {
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+        """)
         email_layout.addWidget(self.recovery_email_username)
-        
+
         self.recovery_email_input = QLineEdit()
         self.recovery_email_input.setPlaceholderText("邮箱地址")
+        self.recovery_email_input.setStyleSheet("""
+            QLineEdit {
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+        """)
         email_layout.addWidget(self.recovery_email_input)
-        
+
         code_row = QHBoxLayout()
         self.recovery_code_input = QLineEdit()
         self.recovery_code_input.setPlaceholderText("验证码")
         self.recovery_code_input.setMaxLength(6)
+        self.recovery_code_input.setStyleSheet("""
+            QLineEdit {
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+        """)
         code_row.addWidget(self.recovery_code_input, 2)
         
         self.recovery_get_code_btn = QPushButton("获取验证码")
