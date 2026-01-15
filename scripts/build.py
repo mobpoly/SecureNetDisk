@@ -45,9 +45,11 @@ def main():
     
     # 确保产物目录存在
     dist_dir = root_dir / "dist"
-    if dist_dir.exists():
-        print(f"Cleaning existing dist directory: {dist_dir}")
-        shutil.rmtree(dist_dir)
+    for folder in ["dist", "build"]:
+        folder_path = root_dir / folder
+        if folder_path.exists():
+            print(f"Cleaning existing {folder} directory: {folder_path}")
+            shutil.rmtree(folder_path)
     
     try:
         # 客户端图标路径
