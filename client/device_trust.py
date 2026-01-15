@@ -7,11 +7,22 @@
 import os
 import json
 import uuid
+import sys
+import time
 from typing import Optional, Dict, List
 from pathlib import Path
 from dataclasses import dataclass, asdict
 
 from crypto.aes import AESCipher
+
+# Windows 平台使用 DPAPI 加密本地密钥
+try:
+    if sys.platform == 'win32':
+        import win32crypt
+    else:
+        win32crypt = None
+except ImportError:
+    win32crypt = None
 
 
 @dataclass
@@ -20,10 +31,11 @@ class UserDeviceInfo:
     username: str
     email: str
     trusted: bool
-    device_key: str  # hex encoded
+    device_key: str  # hex encoded (possibly DPAPI encrypted)
     encrypted_master_key: str  # hex encoded
     encrypted_private_key: str  # hex encoded
     public_key: str  # hex encoded
+    trust_timestamp: float = 0.0  # 信任建立时间戳
 
 
 class DeviceTrustManager:
@@ -31,6 +43,7 @@ class DeviceTrustManager:
     
     STORAGE_DIR = Path.home() / ".secure_netdisk"
     DEVICE_FILE = "device.json"
+    TRUST_EXPIRY_DAYS = 7  # 信任有效期 7 天
     
     def __init__(self):
         self._ensure_storage_dir()
@@ -147,15 +160,25 @@ class DeviceTrustManager:
             encrypted_private, iv2 = cipher.encrypt_cbc(private_key)
             encrypted_private = iv2 + encrypted_private
             
+            # 处理设备密钥的本地存储加密 (DPAPI)
+            final_device_key = device_key
+            if win32crypt:
+                try:
+                    # 使用 Windows DPAPI 加密，绑定到当前用户和机器
+                    final_device_key = win32crypt.CryptProtectData(device_key, "SecureNetDisk Device Key", None, None, None, 0)
+                except Exception as dpapi_err:
+                    print(f"[DeviceTrust] DPAPI 加密失败，退回到普通存储: {dpapi_err}")
+
             # 创建用户信息
             user_info = UserDeviceInfo(
                 username=username,
                 email=email,
                 trusted=True,
-                device_key=device_key.hex(),
+                device_key=final_device_key.hex(),
                 encrypted_master_key=encrypted_master.hex(),
                 encrypted_private_key=encrypted_private.hex(),
-                public_key=public_key.hex()
+                public_key=public_key.hex(),
+                trust_timestamp=time.time()
             )
             
             # 加载现有数据并添加/更新用户
@@ -185,7 +208,30 @@ class DeviceTrustManager:
             if not info or not info.trusted:
                 return None
             
-            device_key = bytes.fromhex(info.device_key)
+            # 校验过期时间 (7天)
+            current_time = time.time()
+            if info.trust_timestamp > 0: # 新版本有时间戳
+                elapsed_days = (current_time - info.trust_timestamp) / (24 * 3600)
+                if elapsed_days > self.TRUST_EXPIRY_DAYS:
+                    print(f"[DeviceTrust] 用户 {email} 的设备信任已过期 ({elapsed_days:.1f} 天)")
+                    self.mark_untrusted(email)
+                    return None
+            
+            # 读取并解密设备密钥
+            device_key_bytes = bytes.fromhex(info.device_key)
+            
+            if win32crypt:
+                try:
+                    # 尝试使用 DPAPI 解密
+                    _, decrypted_device_key = win32crypt.CryptUnprotectData(device_key_bytes, None, None, None, 0)
+                    device_key = decrypted_device_key
+                except Exception:
+                    # 如果解密失败，可能是旧版未加密的密钥，或者是被篡改/在不同机器上
+                    # 这里尝试直接当做原始密钥使用（兼容旧数据）
+                    device_key = device_key_bytes
+            else:
+                device_key = device_key_bytes
+
             cipher = AESCipher(device_key)
             
             # 解密主密钥

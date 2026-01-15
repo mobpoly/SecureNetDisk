@@ -2,3 +2,4 @@ PyQt6>=6.4.0
 pycryptodome>=3.15.0
 bcrypt>=4.0.0
 pyinstaller
+pywin32; sys_platform == 'win32'
